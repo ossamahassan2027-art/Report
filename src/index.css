@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'Amiri', Georgia, serif;
+    --font-sans: 'IBM Plex Sans Arabic', system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
+}
+
+.font-editorial {
+  font-family: var(--font-display);
+}
+
+.font-body-ar {
+  font-family: var(--font-sans);
+}
+
+.tabular-nums-ar {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Exact A4 dimensions at 96 DPI: 210mm x 297mm = 794px x 1123px */
+.a4-sheet {
+  width: 794px;
+  min-height: 1123px;
+  height: 1123px;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-container {
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    display: block !important;
+  }
+
+  .a4-sheet-wrapper {
+    transform: none !important;
+    width: 210mm !important;
+    height: 297mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .a4-sheet-wrapper:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  .a4-sheet {
+    width: 210mm !important;
+    height: 297mm !important;
+    min-height: 297mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+}

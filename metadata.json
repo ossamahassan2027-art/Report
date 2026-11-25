@@ -1,0 +1,6 @@
+{
+  "name": "المركز الشامل لرعاية الطفل - منسق التقارير الرسمية",
+  "description": "منصة ذكية لتنسيق وتوليد وتصدير التقارير التربوية الرسمية بصيغة A4 والإنفوجراف وWord وExcel باللغتين العربية والإنجليزية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
