@@ -33,6 +33,41 @@
   overflow: hidden;
 }
 
+@media screen {
+  .click-edit-target {
+    position: relative;
+    cursor: pointer;
+    transition: outline-color 0.15s ease, background-color 0.15s ease;
+    outline: 1.5px dashed transparent;
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  .click-edit-target:hover {
+    outline-color: #2563EB;
+    background-color: rgba(37, 99, 235, 0.045);
+  }
+
+  .click-edit-target:hover::after {
+    content: attr(data-edit-label);
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    z-index: 40;
+    background: #1E3A8A;
+    color: #FFFFFF;
+    font-family: var(--font-sans);
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 3px 7px;
+    border-radius: 3px;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+  }
+}
+
 @media print {
   @page {
     size: A4 portrait;
@@ -62,7 +97,8 @@
   .a4-sheet-wrapper {
     transform: none !important;
     width: 210mm !important;
-    height: 297mm !important;
+    height: auto !important;
+    min-height: 297mm !important;
     margin: 0 !important;
     padding: 0 !important;
     box-shadow: none !important;
@@ -77,8 +113,10 @@
 
   .a4-sheet {
     width: 210mm !important;
-    height: 297mm !important;
+    height: auto !important;
     min-height: 297mm !important;
+    background-color: #ffffff !important;
+    background: #ffffff !important;
     box-shadow: none !important;
     border: none !important;
     border-radius: 0 !important;

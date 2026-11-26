@@ -19,6 +19,7 @@ import {
   ReportLanguage,
   SectionVisibility,
 } from '../types/report';
+import { ReportExtras } from '../types/studio';
 
 function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -35,7 +36,8 @@ export async function exportReportToWord(
   data: ReportData,
   visibility: SectionVisibility,
   language: ReportLanguage,
-  accentTheme: AccentTheme
+  accentTheme: AccentTheme,
+  extras?: ReportExtras
 ): Promise<void> {
   const isRtl = language === 'ar';
   const theme = ACCENT_THEMES[accentTheme];
@@ -324,6 +326,106 @@ export async function exportReportToWord(
     );
   }
 
+  if (extras) {
+    if (
+      extras.extrasVisibility.summary &&
+      (extras.summaryText.trim() || extras.quickSummaryLines.length > 0)
+    ) {
+      children.push(makeHeading(isRtl ? 'ملخص التقرير التنفيذي' : 'Executive Summary'));
+      if (extras.summaryText.trim()) children.push(makeBody(extras.summaryText));
+      extras.quickSummaryLines.forEach((ln, idx) => {
+        children.push(makeBullet(`${idx + 1}.`, ln));
+      });
+    }
+
+    if (
+      extras.extrasVisibility.behaviorTechniques &&
+      extras.selectedBehaviorTechniques.length > 0
+    ) {
+      children.push(
+        makeHeading(isRtl ? 'فنيات تعديل السلوك المختارة' : 'Selected Behavior Techniques')
+      );
+      children.push(makeBody(extras.selectedBehaviorTechniques.join('  ·  ')));
+    }
+
+    if (extras.extrasVisibility.plan && extras.planGoals.length > 0) {
+      children.push(makeHeading(isRtl ? 'خطة الأهداف والمتابعة' : 'Action Plan & Goals'));
+      const goalRows = [
+        new TableRow({
+          children: [
+            new TableCell({ children: [makeBody(isRtl ? 'الهدف' : 'Goal', true)] }),
+            new TableCell({ children: [makeBody(isRtl ? 'المدة' : 'Duration', true)] }),
+            new TableCell({ children: [makeBody(isRtl ? 'المسؤول' : 'Owner', true)] }),
+            new TableCell({ children: [makeBody(isRtl ? 'التقدم' : 'Progress', true)] }),
+          ],
+        }),
+        ...extras.planGoals.map(
+          (g) =>
+            new TableRow({
+              children: [
+                new TableCell({ children: [makeBody(g.goal)] }),
+                new TableCell({ children: [makeBody(g.targetDuration)] }),
+                new TableCell({ children: [makeBody(g.owner)] }),
+                new TableCell({ children: [makeBody(g.progress)] }),
+              ],
+            })
+        ),
+      ];
+      children.push(
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          visuallyRightToLeft: isRtl,
+          rows: goalRows,
+        })
+      );
+      if (extras.progressNotes.trim()) {
+        children.push(
+          makeBody(
+            `${isRtl ? 'ملاحظات المتابعة' : 'Progress Notes'}: ${extras.progressNotes}`
+          )
+        );
+      }
+    }
+
+    if (extras.extrasVisibility.tables && extras.tables.length > 0) {
+      extras.tables.forEach((tbl) => {
+        children.push(makeHeading(tbl.title));
+        const tblRows = [
+          new TableRow({
+            children: tbl.headers.map(
+              (h) => new TableCell({ children: [makeBody(h, true)] })
+            ),
+          }),
+          ...tbl.rows.map(
+            (r) =>
+              new TableRow({
+                children: r.map(
+                  (cell) => new TableCell({ children: [makeBody(cell)] })
+                ),
+              })
+          ),
+        ];
+        children.push(
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            visuallyRightToLeft: isRtl,
+            rows: tblRows,
+          })
+        );
+      });
+    }
+
+    if (extras.extrasVisibility.evaluations && extras.selectedEvaluationForms.length > 0) {
+      children.push(makeHeading(isRtl ? 'استمارات التقييم المرفقة' : 'Attached Evaluations'));
+      extras.selectedEvaluationForms.forEach((form) => {
+        children.push(makeBody(form.title, true));
+        form.fields.forEach((fld) => {
+          children.push(makeBullet('•', `${fld.label}: ${fld.value}`));
+        });
+      });
+    }
+  }
+
   children.push(makeBody(data.closingSalutation, true));
   children.push(
     makeBody(
@@ -352,7 +454,8 @@ export async function exportReportToWord(
 export function exportReportToExcel(
   data: ReportData,
   visibility: SectionVisibility,
-  language: ReportLanguage
+  language: ReportLanguage,
+  extras?: ReportExtras
 ): void {
   const isRtl = language === 'ar';
   const wb = XLSX.utils.book_new();
@@ -453,6 +556,15 @@ export function exportReportToExcel(
     });
   }
 
+  if (extras && extras.extrasVisibility.behaviorTechniques && extras.selectedBehaviorTechniques.length > 0) {
+    itemsRows.push([
+      seq++,
+      isRtl ? 'فنيات تعديل السلوك' : 'Behavior Techniques',
+      extras.selectedBehaviorTechniques.join(' · '),
+      isRtl ? 'مُدرج بالتقرير' : 'Included',
+    ]);
+  }
+
   const wsItems = XLSX.utils.aoa_to_sheet(itemsRows);
   wsItems['!cols'] = [{ wch: 6 }, { wch: 30 }, { wch: 76 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(
@@ -460,6 +572,37 @@ export function exportReportToExcel(
     wsItems,
     isRtl ? 'التحليل والتوصيات' : 'Matrix & Recommendations'
   );
+
+  if (extras && (extras.planGoals.length > 0 || extras.selectedEvaluationForms.length > 0 || extras.tables.length > 0)) {
+    const extraSheetRows: (string | number)[][] = [
+      [isRtl ? 'القسم' : 'Section', isRtl ? 'البند' : 'Item', isRtl ? 'التفاصيل' : 'Details', isRtl ? 'ملاحظات' : 'Notes'],
+    ];
+    extras.planGoals.forEach((g) => {
+      extraSheetRows.push([
+        isRtl ? 'خطة الأهداف' : 'Plan Goal',
+        g.goal,
+        `${g.targetDuration} · ${g.owner}`,
+        g.progress,
+      ]);
+    });
+    extras.selectedEvaluationForms.forEach((form) => {
+      form.fields.forEach((fld) => {
+        extraSheetRows.push([form.title, fld.label, fld.value, '']);
+      });
+    });
+    extras.tables.forEach((tbl) => {
+      tbl.rows.forEach((r) => {
+        extraSheetRows.push([tbl.title, r[0] || '', r[1] || '', r[2] || '']);
+      });
+    });
+    const wsExtras = XLSX.utils.aoa_to_sheet(extraSheetRows);
+    wsExtras['!cols'] = [{ wch: 24 }, { wch: 34 }, { wch: 40 }, { wch: 26 }];
+    XLSX.utils.book_append_sheet(
+      wb,
+      wsExtras,
+      isRtl ? 'الخطة والاستمارات' : 'Plan & Forms'
+    );
+  }
 
   const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([wbout], {

@@ -1,24 +1,23 @@
 import React, { useState } from 'react';
 import {
   CheckSquare,
-  FileText,
+  ChevronDown,
+  ChevronUp,
+  LayoutTemplate,
   Loader2,
   MessageSquarePlus,
   Plus,
   RotateCcw,
   Sparkles,
   Square,
-  Zap,
 } from 'lucide-react';
 import {
   ADDRESSEE_SHORTCUTS,
   COMPLAINT_SAMPLES,
   ItemSelections,
   RECOMMENDATION_SHORTCUTS,
-  REPORT_TEMPLATES,
   ReportData,
   ReportLanguage,
-  ReportTemplate,
   SectionVisibility,
 } from '../types/report';
 
@@ -32,7 +31,6 @@ interface EditorPanelProps {
   onChangeData: (updated: ReportData) => void;
   onChangeVisibility: (updated: SectionVisibility) => void;
   onChangeSelections: (updated: ItemSelections) => void;
-  onApplyTemplate: (template: ReportTemplate) => void;
   onGenerateFromComplaint: (payload: {
     complaintText: string;
     childName: string;
@@ -41,10 +39,10 @@ interface EditorPanelProps {
     targetPurpose: string;
     outputLanguage: ReportLanguage;
   }) => Promise<void>;
-  onRunShortcut: (mode: 'executive' | 'parent-brief' | 'school-memo') => Promise<void>;
   onReset: () => void;
   activeTab: EditorTab;
   onTabChange: (tab: EditorTab) => void;
+  onOpenTemplatesSection?: () => void;
   aiBusy: boolean;
   aiError: string;
 }
@@ -57,15 +55,15 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   onChangeData,
   onChangeVisibility,
   onChangeSelections,
-  onApplyTemplate,
   onGenerateFromComplaint,
-  onRunShortcut,
   onReset,
   activeTab,
   onTabChange,
+  onOpenTemplatesSection,
   aiBusy,
   aiError,
 }) => {
+  const [cardCollapsed, setCardCollapsed] = useState(false);
   const [complaintText, setComplaintText] = useState('');
   const [complaintChildName, setComplaintChildName] = useState('');
   const [complaintAge, setComplaintAge] = useState('');
@@ -156,7 +154,6 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
     { id: 'school', label: 'المدرسة' },
     { id: 'child', label: 'الطفل' },
     { id: 'items', label: 'اختيارات' },
-    { id: 'templates', label: 'قوالب' },
     { id: 'complaint', label: 'من شكوى' },
   ];
 
@@ -166,54 +163,70 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   return (
     <aside
       dir="rtl"
-      className="no-print flex flex-col bg-[#FBF9F5] border border-[#DDD5C7] rounded-xl lg:rounded-lg overflow-hidden"
+      className="no-print flex flex-col bg-white border border-[#E2E8F0] rounded-xl shadow-sm overflow-hidden"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#E5DEC9]">
-        <div>
-          <h3 className="font-editorial text-lg font-bold text-[#1C1917]">
-            استوديو تحرير التقرير
-          </h3>
-          <p className="text-[11px] text-[#57534E]">
-            تحرير مباشر للنسخة {language === 'ar' ? 'العربية' : 'الإنجليزية'}
-          </p>
-        </div>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#E2E8F0] bg-white">
+        <button
+          type="button"
+          onClick={() => setCardCollapsed((c) => !c)}
+          className="flex items-center gap-2 text-right cursor-pointer group"
+          title={cardCollapsed ? 'توسيع المحرر' : 'طي المحرر'}
+        >
+          <span className="p-1.5 rounded-lg bg-[#EFF6FF] text-[#2563EB] group-hover:bg-[#DBEAFE]">
+            {cardCollapsed ? (
+              <ChevronDown className="w-4 h-4" />
+            ) : (
+              <ChevronUp className="w-4 h-4" />
+            )}
+          </span>
+          <div>
+            <h3 className="font-editorial text-base font-bold text-[#0F172A]">
+              تحرير بيانات التقرير
+            </h3>
+            <p className="text-[11px] text-[#64748B]">
+              النسخة {language === 'ar' ? 'العربية' : 'الإنجليزية'}
+            </p>
+          </div>
+        </button>
         <button
           type="button"
           onClick={onReset}
-          className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#57534E] hover:text-[#1C1917] hover:bg-[#EFEAE0] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="min-h-[34px] inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-[#1E3A8A] bg-[#EFF6FF] border border-[#BFDBFE] hover:bg-[#DBEAFE] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           <RotateCcw className="w-3.5 h-3.5" />
           <span>استعادة الأصل</span>
         </button>
       </div>
 
-      {/* 5-Tab Bar */}
-      <div className="grid grid-cols-5 gap-1 p-1.5 bg-[#EFEAE0] border-b border-[#E5DEC9]">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => onTabChange(t.id)}
-            className={`min-h-[40px] py-2 px-1 text-[11.5px] font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === t.id
-                ? 'bg-white text-[#1C1917] shadow-xs'
-                : 'text-[#57534E] hover:text-[#1C1917]'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {!cardCollapsed && (
+        <>
+          {/* 4 Non-Duplicate Tabs */}
+          <div className="grid grid-cols-4 gap-1 p-1.5 bg-[#F8FAFC] border-b border-[#E2E8F0]">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onTabChange(t.id)}
+                className={`min-h-[38px] py-1.5 px-1 text-[11.5px] font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  activeTab === t.id
+                    ? 'bg-[#2563EB] text-white shadow-xs'
+                    : 'text-[#475569] hover:text-[#0F172A] hover:bg-white'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
 
-      {aiError && (
-        <div className="mx-3 mt-3 px-3 py-2.5 bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] text-xs rounded-lg">
-          {aiError}
-        </div>
-      )}
+          {aiError && (
+            <div className="mx-3 mt-3 px-3 py-2.5 bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] text-xs rounded-lg">
+              {aiError}
+            </div>
+          )}
 
-      {/* Body */}
-      <div className="p-4 space-y-4 lg:max-h-[calc(100vh-250px)] overflow-y-auto text-sm">
+          {/* Body */}
+          <div className="p-4 space-y-4 lg:max-h-[calc(100vh-260px)] overflow-y-auto text-sm">
         {activeTab === 'school' && (
           <div className="space-y-3.5">
             <div>
@@ -675,69 +688,8 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                 </button>
               </div>
             </div>
-          </div>
-        )}
-
-        {activeTab === 'templates' && (
-          <div className="space-y-4">
-            <div>
-              <div className="flex items-center gap-1.5 text-xs font-bold text-[#1C1917] mb-2">
-                <FileText className="w-3.5 h-3.5 text-[#1E3A8A]" />
-                <span>قوالب التقارير التربوية (عربي + إنجليزي)</span>
-              </div>
-              <div className="space-y-2">
-                {REPORT_TEMPLATES.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    onClick={() => onApplyTemplate(tpl)}
-                    className="w-full min-h-[54px] text-right p-3 bg-white hover:bg-[#F1F5FB] border border-[#DDD5C7] hover:border-[#1E3A8A] rounded-lg transition-colors cursor-pointer"
-                  >
-                    <div className="text-xs font-bold text-[#1C1917]">{tpl.name}</div>
-                    <div className="text-[11px] text-[#57534E] mt-0.5">{tpl.description}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-[#E5DEC9]">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-[#1C1917] mb-2">
-                <Zap className="w-3.5 h-3.5 text-[#8C6D3F]" />
-                <span>اختصارات ذكية لإعادة الصياغة ({language === 'ar' ? 'عربي' : 'English'})</span>
-              </div>
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  disabled={aiBusy}
-                  onClick={() => onRunShortcut('executive')}
-                  className="w-full min-h-[44px] text-right px-3 py-2.5 bg-white hover:bg-[#EFEAE0] border border-[#D6CEBE] rounded-lg text-xs font-semibold text-[#1C1917] disabled:opacity-50 cursor-pointer flex items-center justify-between"
-                >
-                  <span>توليد ملخص تنفيذي مختصر</span>
-                  {aiBusy && <Loader2 className="w-4 h-4 animate-spin" />}
-                </button>
-                <button
-                  type="button"
-                  disabled={aiBusy}
-                  onClick={() => onRunShortcut('school-memo')}
-                  className="w-full min-h-[44px] text-right px-3 py-2.5 bg-white hover:bg-[#EFEAE0] border border-[#D6CEBE] rounded-lg text-xs font-semibold text-[#1C1917] disabled:opacity-50 cursor-pointer flex items-center justify-between"
-                >
-                  <span>تحويل إلى مذكرة تسهيلات صفية عاجلة</span>
-                  {aiBusy && <Loader2 className="w-4 h-4 animate-spin" />}
-                </button>
-                <button
-                  type="button"
-                  disabled={aiBusy}
-                  onClick={() => onRunShortcut('parent-brief')}
-                  className="w-full min-h-[44px] text-right px-3 py-2.5 bg-white hover:bg-[#EFEAE0] border border-[#D6CEBE] rounded-lg text-xs font-semibold text-[#1C1917] disabled:opacity-50 cursor-pointer flex items-center justify-between"
-                >
-                  <span>إعادة صياغة كدليل إرشادي لولي الأمر</span>
-                  {aiBusy && <Loader2 className="w-4 h-4 animate-spin" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-[#E5DEC9]">
-              <div className="text-xs font-bold text-[#1C1917] mb-2">
+            <div className="border border-[#E2E8F0] bg-white rounded-lg p-3 space-y-2">
+              <div className="text-xs font-bold text-[#0F172A]">
                 إدراج توصية جاهزة بضغطة واحدة
               </div>
               <div className="space-y-1.5">
@@ -755,14 +707,32 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                         recommendations: [...selections.recommendations, true],
                       });
                     }}
-                    className="w-full min-h-[44px] text-right p-2.5 bg-white hover:bg-[#F1F5FB] border border-[#E5DEC9] rounded-lg text-[11.5px] text-[#292524] flex items-start gap-2 cursor-pointer"
+                    className="w-full min-h-[40px] text-right p-2 bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#E2E8F0] rounded-lg text-[11.5px] text-[#1E293B] flex items-start gap-2 cursor-pointer"
                   >
-                    <Plus className="w-4 h-4 text-[#1E3A8A] shrink-0 mt-0.5" />
+                    <Plus className="w-4 h-4 text-[#2563EB] shrink-0 mt-0.5" />
                     <span>{snippet}</span>
                   </button>
                 ))}
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'templates' && (
+          <div className="p-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg space-y-2.5 text-xs">
+            <div className="font-bold text-[#1E3A8A]">
+              تم توحيد قوالب التصميم والاختصارات الذكية في قسم «قوالب تصميم» لمنع التكرار.
+            </div>
+            {onOpenTemplatesSection && (
+              <button
+                type="button"
+                onClick={onOpenTemplatesSection}
+                className="min-h-[38px] px-3.5 bg-[#2563EB] text-white font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <LayoutTemplate className="w-4 h-4" />
+                <span>الانتقال إلى قوالب تصميم</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -912,7 +882,9 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
             </button>
           </form>
         )}
-      </div>
+          </div>
+        </>
+      )}
     </aside>
   );
 };

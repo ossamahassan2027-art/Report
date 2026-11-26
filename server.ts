@@ -3,6 +3,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import mammoth from 'mammoth';
 import { GoogleGenAI, Type } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -102,7 +103,451 @@ const REPORT_CONTENT_SCHEMA = {
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '15mb' }));
+
+  const DOCX_MIME =
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+  const ALLOWED_CV_MIME_TYPES = new Set([
+    'application/pdf',
+    'image/png',
+    'image/jpeg',
+    'image/jpg',
+    'image/webp',
+    'text/plain',
+    DOCX_MIME,
+  ]);
+
+  const CV_EXTRACTION_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+      fullName: { type: Type.STRING },
+      targetJobTitle: { type: Type.STRING },
+      phone: { type: Type.STRING },
+      email: { type: Type.STRING },
+      location: { type: Type.STRING },
+      websiteOrLink: { type: Type.STRING },
+      summary: { type: Type.STRING },
+      experiences: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            jobTitle: { type: Type.STRING },
+            company: { type: Type.STRING },
+            location: { type: Type.STRING },
+            dateRange: { type: Type.STRING },
+            bullets: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+          required: ['jobTitle', 'company', 'location', 'dateRange', 'bullets'],
+        },
+      },
+      education: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            degree: { type: Type.STRING },
+            institution: { type: Type.STRING },
+            dateRange: { type: Type.STRING },
+            details: { type: Type.STRING },
+          },
+          required: ['degree', 'institution', 'dateRange', 'details'],
+        },
+      },
+      skills: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            level: { type: Type.STRING },
+          },
+          required: ['name', 'level'],
+        },
+      },
+      certifications: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            issuer: { type: Type.STRING },
+            date: { type: Type.STRING },
+          },
+          required: ['name', 'issuer', 'date'],
+        },
+      },
+      languages: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            proficiency: { type: Type.STRING },
+          },
+          required: ['name', 'proficiency'],
+        },
+      },
+      trainings: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            provider: { type: Type.STRING },
+            dateRange: { type: Type.STRING },
+          },
+          required: ['title', 'provider', 'dateRange'],
+        },
+      },
+    },
+    required: [
+      'fullName',
+      'targetJobTitle',
+      'phone',
+      'email',
+      'location',
+      'websiteOrLink',
+      'summary',
+      'experiences',
+      'education',
+      'skills',
+      'certifications',
+      'languages',
+      'trainings',
+    ],
+  };
+
+  const CERTIFICATE_EXTRACTION_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+      docType: { type: Type.STRING },
+      title: { type: Type.STRING },
+      issuer: { type: Type.STRING },
+      year: { type: Type.STRING },
+      keywordSkill: { type: Type.STRING },
+    },
+    required: ['docType', 'title', 'issuer', 'year', 'keywordSkill'],
+  };
+
+  app.post('/api/cv/extract-cv', async (req, res) => {
+    try {
+      const { mimeType, base64Data, plainText, targetLanguage = 'ar' } = req.body ?? {};
+
+      const hasText = typeof plainText === 'string' && plainText.trim().length > 0;
+      const hasBinary = typeof base64Data === 'string' && base64Data.trim().length > 0;
+
+      if (!hasText && !hasBinary) {
+        return res.status(400).json({ error: 'يرجى إرفاق ملف السيرة الذاتية أو نص واضح للاستخراج.' });
+      }
+
+      if (hasBinary) {
+        if (typeof mimeType !== 'string' || !ALLOWED_CV_MIME_TYPES.has(mimeType)) {
+          return res.status(400).json({ error: 'صيغة الملف غير مدعومة. الصيغ المدعومة: PDF، Word، صور، أو نص.' });
+        }
+        // Reject oversized base64 payloads (~10MB binary max)
+        if (base64Data.length > 14 * 1024 * 1024) {
+          return res.status(400).json({ error: 'حجم الملف كبير جداً. الحد الأقصى 10 ميجابايت.' });
+        }
+      }
+
+      const ai = getAiClient();
+      const langLabel = targetLanguage === 'en' ? 'English' : 'Arabic';
+      const instructionPrompt = `
+Extract structured CV fields from the attached document in ${langLabel} (keep proper names, emails, URLs, and dates accurate).
+STRICT ANTI-HALLUCINATION RULES:
+1. Extract ONLY facts explicitly stated in the provided CV. NEVER invent, guess, or fabricate missing details.
+2. If any scalar field (fullName, targetJobTitle, phone, email, location, websiteOrLink, summary) is missing or unreadable, set it strictly to "[ ... ]".
+3. Normalize dates where clear to "MM/YYYY - MM/YYYY" or "MM/YYYY - ${targetLanguage === 'en' ? 'Present' : 'حتى الآن'}" (or "MM/YYYY" for single dates). If unclear, use "[ ... ]".
+4. Keep skills concise (name + level like "${targetLanguage === 'en' ? 'Intermediate' : 'متوسط'}" or "" if level is not stated).
+5. Return valid JSON matching the exact schema.
+`;
+
+      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+      let extractedDocxText = '';
+      if (hasBinary && mimeType === DOCX_MIME) {
+        const buffer = Buffer.from(base64Data.trim(), 'base64');
+        const docxResult = await mammoth.extractRawText({ buffer });
+        extractedDocxText = (docxResult.value || '').trim();
+        if (!extractedDocxText) {
+          return res.status(400).json({ error: 'لم يتم العثور على نص مقروء داخل ملف Word (.docx).' });
+        }
+      } else if (hasBinary) {
+        parts.push({
+          inlineData: {
+            mimeType,
+            data: base64Data.trim(),
+          },
+        });
+      }
+
+      const combinedText = [plainText || '', extractedDocxText].filter(Boolean).join('\n').trim();
+      if (combinedText) {
+        parts.push({
+          text: `${instructionPrompt}\n\nCV Text Content:\n"""\n${combinedText.slice(0, 60000)}\n"""`,
+        });
+      } else {
+        parts.push({ text: instructionPrompt });
+      }
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: { parts },
+        config: {
+          systemInstruction:
+            'You are a high-precision CV parser for ATS compliance. Extract strictly what is present in the source document; never fabricate values and use "[ ... ]" for missing text.',
+          responseMimeType: 'application/json',
+          responseSchema: CV_EXTRACTION_SCHEMA,
+        },
+      });
+
+      const raw = (response.text ?? '{}').trim();
+      const parsed = JSON.parse(raw);
+      return res.json({ cv: parsed });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر استخراج بيانات السيرة الذاتية.';
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/cv/extract-certificate', async (req, res) => {
+    try {
+      const { mimeType, base64Data, plainText, targetLanguage = 'ar' } = req.body ?? {};
+      const hasText = typeof plainText === 'string' && plainText.trim().length > 0;
+      const hasBinary = typeof base64Data === 'string' && base64Data.trim().length > 0;
+
+      if (!hasText && !hasBinary) {
+        return res.status(400).json({ error: 'يرجى إرفاق ملف الشهادة أو الوثيقة أولاً.' });
+      }
+
+      if (hasBinary) {
+        if (typeof mimeType !== 'string' || !ALLOWED_CV_MIME_TYPES.has(mimeType)) {
+          return res.status(400).json({ error: 'صيغة الوثيقة غير مدعومة.' });
+        }
+        if (base64Data.length > 14 * 1024 * 1024) {
+          return res.status(400).json({ error: 'حجم الملف يتجاوز الحد الأقصى (10 ميجابايت).' });
+        }
+      }
+
+      const ai = getAiClient();
+      const isEn = targetLanguage === 'en';
+      const prompt = `
+Analyze this certificate, training course document, or experience letter and extract ONLY concise ATS-ready keywords/metadata. NEVER copy the full certificate paragraph text.
+Output language: ${isEn ? 'English' : 'Arabic'}.
+Fields required:
+- docType: must be one of ${isEn ? '"Certificate", "Training", "Experience Letter"' : '"شهادة", "دورة", "خطاب خبرة"'}.
+- title: concise official name of the certificate, course, or job title in the letter (max 10 words). Use "[ ... ]" if unclear.
+- issuer: issuing organization/academy/company name. Use "[ ... ]" if unclear.
+- year: date or year in "MM/YYYY" or "YYYY" format. Use "[ ... ]" if unclear.
+- keywordSkill: 1 concise keyword or short skill phrase (2-4 words max) representing the core skill acquired. Use "[ ... ]" if unclear.
+NEVER invent missing data.
+`;
+
+      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+      let extractedDocxText = '';
+      if (hasBinary && mimeType === DOCX_MIME) {
+        const buffer = Buffer.from(base64Data.trim(), 'base64');
+        const docxResult = await mammoth.extractRawText({ buffer });
+        extractedDocxText = (docxResult.value || '').trim();
+        if (!extractedDocxText) {
+          return res.status(400).json({ error: 'لم يتم العثور على نص مقروء داخل ملف Word (.docx).' });
+        }
+      } else if (hasBinary) {
+        parts.push({
+          inlineData: {
+            mimeType,
+            data: base64Data.trim(),
+          },
+        });
+      }
+
+      const combinedText = [plainText || '', extractedDocxText].filter(Boolean).join('\n').trim();
+      if (combinedText) {
+        parts.push({ text: `${prompt}\n\nDocument Text:\n"""\n${combinedText.slice(0, 25000)}\n"""` });
+      } else {
+        parts.push({ text: prompt });
+      }
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: { parts },
+        config: {
+          systemInstruction:
+            'Extract concise certificate/document metadata and 1 short keyword skill only. Never copy full body text and never hallucinate.',
+          responseMimeType: 'application/json',
+          responseSchema: CERTIFICATE_EXTRACTION_SCHEMA,
+        },
+      });
+
+      const raw = (response.text ?? '{}').trim();
+      const parsed = JSON.parse(raw);
+      return res.json({ certificate: parsed });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر قراءة بيانات الشهادة.';
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  const JOB_AD_EXTRACTION_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+      jobTitle: { type: Type.STRING },
+      organization: { type: Type.STRING },
+      sector: { type: Type.STRING },
+      cleanedText: { type: Type.STRING },
+      keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+    },
+    required: ['jobTitle', 'organization', 'sector', 'cleanedText', 'keywords'],
+  };
+
+  app.post('/api/cv/extract-job-ad', async (req, res) => {
+    try {
+      const { mimeType, base64Data, plainText, targetLanguage = 'ar' } = req.body ?? {};
+      const hasText = typeof plainText === 'string' && plainText.trim().length > 0;
+      const hasBinary = typeof base64Data === 'string' && base64Data.trim().length > 0;
+
+      if (!hasText && !hasBinary) {
+        return res.status(400).json({ error: 'يرجى إرفاق ملف إعلان الوظيفة أو لصق نصه أولاً.' });
+      }
+
+      if (hasBinary) {
+        if (typeof mimeType !== 'string' || !ALLOWED_CV_MIME_TYPES.has(mimeType)) {
+          return res.status(400).json({ error: 'صيغة ملف إعلان الوظيفة غير مدعومة.' });
+        }
+        if (base64Data.length > 14 * 1024 * 1024) {
+          return res.status(400).json({ error: 'حجم الملف يتجاوز الحد الأقصى (10 ميجابايت).' });
+        }
+      }
+
+      const ai = getAiClient();
+      const isEn = targetLanguage === 'en';
+      const prompt = `
+Extract structured information from this job advertisement in ${isEn ? 'English' : 'Arabic'}.
+STRICT RULES:
+1. Extract ONLY facts explicitly stated in the job advertisement. NEVER invent requirements.
+2. jobTitle: the advertised job title, or "[ ... ]" if missing.
+3. organization: hiring organization/entity name, or "[ ... ]" if missing.
+4. sector: industry/field of the role, or "[ ... ]" if unclear.
+5. cleanedText: clean, plain-text summary of the job description & requirements suitable for ATS matching.
+6. keywords: concise list of up to 16 explicit required skills/tools/competencies mentioned in the ad.
+`;
+
+      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+      let extractedDocxText = '';
+      if (hasBinary && mimeType === DOCX_MIME) {
+        const buffer = Buffer.from(base64Data.trim(), 'base64');
+        const docxResult = await mammoth.extractRawText({ buffer });
+        extractedDocxText = (docxResult.value || '').trim();
+        if (!extractedDocxText) {
+          return res.status(400).json({ error: 'لم يتم العثور على نص مقروء داخل ملف Word (.docx).' });
+        }
+      } else if (hasBinary) {
+        parts.push({
+          inlineData: {
+            mimeType,
+            data: base64Data.trim(),
+          },
+        });
+      }
+
+      const combinedText = [plainText || '', extractedDocxText].filter(Boolean).join('\n').trim();
+      if (combinedText) {
+        parts.push({ text: `${prompt}\n\nJob Advertisement Text:\n"""\n${combinedText.slice(0, 30000)}\n"""` });
+      } else {
+        parts.push({ text: prompt });
+      }
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: { parts },
+        config: {
+          systemInstruction:
+            'Extract strictly stated job advertisement details and ATS keywords only. Never fabricate requirements.',
+          responseMimeType: 'application/json',
+          responseSchema: JOB_AD_EXTRACTION_SCHEMA,
+        },
+      });
+
+      const raw = (response.text ?? '{}').trim();
+      const parsed = JSON.parse(raw);
+      return res.json({ jobAd: parsed });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر قراءة إعلان الوظيفة.';
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  const CV_TAILOR_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+      targetJobTitle: { type: Type.STRING },
+      summary: { type: Type.STRING },
+    },
+    required: ['targetJobTitle', 'summary'],
+  };
+
+  app.post('/api/cv/tailor', async (req, res) => {
+    try {
+      const {
+        cv,
+        targetOrganization = '',
+        targetSector = '',
+        experienceLevel = '',
+        jobDescriptionText = '',
+        language = 'ar',
+      } = req.body ?? {};
+
+      if (!cv || typeof cv !== 'object') {
+        return res.status(400).json({ error: 'بيانات السيرة الذاتية مطلوبة للتخصيص.' });
+      }
+
+      const ai = getAiClient();
+      const isEn = language === 'en';
+      const prompt = `
+Tailor ONLY the Professional Summary and targetJobTitle phrasing of this CV in ${isEn ? 'English' : 'Arabic'} for ATS alignment.
+Target Context:
+- Target Organization / Entity Type: ${String(targetOrganization || 'Not specified')}
+- Target Sector / Field: ${String(targetSector || 'Not specified')}
+- Experience Level: ${String(experienceLevel || 'Not specified')}
+- Optional Job Advertisement Context: ${String(jobDescriptionText || '').slice(0, 4000)}
+
+STRICT ANTI-HALLUCINATION RULES:
+1. Base the tailored summary STRICTLY on the candidate's real experiences, education, skills, and certifications provided in the JSON below.
+2. NEVER invent fake skills, fake employers, fake degrees, or fake years of experience.
+3. Keep ATS plain-text style: crisp 3-4 lines, zero icons, clear keywords already truthful to the candidate.
+4. Keep targetJobTitle concise and ATS-standard.
+
+Candidate CV JSON:
+${JSON.stringify({
+  targetJobTitle: cv.targetJobTitle,
+  summary: cv.summary,
+  experiences: cv.experiences,
+  education: cv.education,
+  skills: cv.skills,
+  certifications: cv.certifications,
+})}
+`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: prompt,
+        config: {
+          systemInstruction:
+            'Rewrite only the CV targetJobTitle and summary for ATS alignment using strictly verified candidate facts. Never fabricate credentials.',
+          responseMimeType: 'application/json',
+          responseSchema: CV_TAILOR_SCHEMA,
+        },
+      });
+
+      const raw = (response.text ?? '{}').trim();
+      const parsed = JSON.parse(raw);
+      return res.json(parsed);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر تخصيص الملخص المهني حالياً.';
+      return res.status(500).json({ error: message });
+    }
+  });
 
   app.post('/api/report/from-complaint', async (req, res) => {
     try {

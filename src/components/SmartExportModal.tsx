@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Check,
   FileSpreadsheet,
@@ -45,6 +45,18 @@ export const SmartExportModal: React.FC<SmartExportModalProps> = ({
   const [bundleInfographic, setBundleInfographic] = useState(true);
   const [bundleDone, setBundleDone] = useState(false);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const handleBatchExport = async () => {
@@ -60,12 +72,16 @@ export const SmartExportModal: React.FC<SmartExportModalProps> = ({
   return (
     <div
       dir="rtl"
+      onClick={onClose}
       className="no-print fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-[2px] p-0 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="smart-export-title"
     >
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[#FBF9F5] border border-[#D6CEBE] rounded-t-3xl sm:rounded-xl shadow-xl">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[#FBF9F5] border border-[#D6CEBE] rounded-t-3xl sm:rounded-xl shadow-xl"
+      >
         {/* Mobile drag handle */}
         <div className="sm:hidden w-10 h-1.5 bg-[#D6CEBE] rounded-full mx-auto mt-3" />
 
@@ -246,6 +262,11 @@ export const SmartExportModal: React.FC<SmartExportModalProps> = ({
             >
               {busy ? 'جاري التصدير...' : 'تصدير الملفات المحددة دفعة واحدة'}
             </button>
+            {!bundleWord && !bundleExcel && !bundlePng && !bundleInfographic && (
+              <p className="text-[11px] text-[#B91C1C] font-medium text-center">
+                اختر صيغة واحدة على الأقل لتفعيل التصدير المتعدد.
+              </p>
+            )}
           </div>
         </div>
       </div>
