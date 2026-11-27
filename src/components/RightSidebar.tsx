@@ -4,6 +4,7 @@ import {
   Award,
   BarChart3,
   Bell,
+  BookOpen,
   Briefcase,
   Building2,
   CalendarClock,
@@ -34,7 +35,11 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { LightThemeDefinition, SidebarSectionId } from '../types/studio';
+import {
+  LightThemeDefinition,
+  SidebarSectionId,
+  SmartAddKind,
+} from '../types/studio';
 import { CvMenuActionId } from './CvAtsStudio';
 import { UtilityModalType } from './StudioUtilityModals';
 
@@ -48,6 +53,9 @@ interface RightSidebarProps {
   onSelectSection: (id: SidebarSectionId, targetTab?: string) => void;
   onTriggerCvMenuAction?: (action: CvMenuActionId) => void;
   onOpenNewReport: () => void;
+  onOpenParentReport?: () => void;
+  libraryCardsCount?: number;
+  onOpenSmartAdd?: (kind: SmartAddKind) => void;
   onFocusFollowUp: () => void;
   onOpenUtilityModal: (modal: UtilityModalType) => void;
   showAddonsButton: boolean;
@@ -83,6 +91,20 @@ export const SIDEBAR_ITEMS: SidebarItemDef[] = [
     ],
   },
   {
+    id: 'library',
+    label: 'مكتبتي الذكية',
+    shortcut: 'L',
+    group: 'reports',
+    icon: BookOpen,
+    tabs: [
+      { id: 'cards', label: 'البطاقات الذكية' },
+      { id: 'folders', label: 'ملفات التخصص (8)' },
+      { id: 'assistant', label: 'المساعد الآلي' },
+      { id: 'extractor', label: 'تفريغ المرفقات' },
+      { id: 'compare', label: 'مقارنة بطاقتين' },
+    ],
+  },
+  {
     id: 'summary',
     label: 'ملخص تقرير',
     shortcut: '2',
@@ -108,6 +130,14 @@ export const SIDEBAR_ITEMS: SidebarItemDef[] = [
       { id: 'target-sector', label: 'الجهة والمجال' },
       { id: 'job-ad', label: 'إرفاق إعلان' },
     ],
+  },
+  {
+    id: 'certificates',
+    label: 'الشهادات والإفادات',
+    shortcut: 'C',
+    group: 'reports',
+    icon: Award,
+    tabs: [{ id: 'main', label: 'استوديو الشهادات والإفادات' }],
   },
   {
     id: 'evaluations',
@@ -188,6 +218,7 @@ export const SIDEBAR_ITEMS: SidebarItemDef[] = [
       { id: 'themes', label: 'الثيمات' },
       { id: 'addons', label: 'زر الإضافات' },
       { id: 'signature', label: 'التوقيع والختم' },
+      { id: 'format', label: 'إعدادات التنسيق الآلي' },
     ],
   },
 ];
@@ -199,7 +230,7 @@ interface NavGroupEntry {
   sectionId?: SidebarSectionId;
   tabId?: string;
   cvAction?: CvMenuActionId;
-  actionType?: 'new-report' | 'focus-followup' | 'utility-modal';
+  actionType?: 'new-report' | 'parent-report' | 'focus-followup' | 'utility-modal';
   utilityModal?: UtilityModalType;
   danger?: boolean;
 }
@@ -223,6 +254,13 @@ const NAV_GROUPS: NavGroup[] = [
         icon: LayoutDashboard,
         sectionId: 'dashboard',
         tabId: 'all',
+      },
+      {
+        key: 'main-library',
+        label: '📚 مكتبتي',
+        icon: BookOpen,
+        sectionId: 'library',
+        tabId: 'cards',
       },
       {
         key: 'main-summary',
@@ -301,6 +339,12 @@ const NAV_GROUPS: NavGroup[] = [
         tabId: 'new',
       },
       {
+        key: 'rep-parent-15',
+        label: 'تقرير ولي أمر (15 قسم)',
+        icon: ShieldCheck,
+        actionType: 'parent-report',
+      },
+      {
         key: 'rep-templates',
         label: 'قوالب التقارير',
         icon: LayoutTemplate,
@@ -333,6 +377,13 @@ const NAV_GROUPS: NavGroup[] = [
         label: 'الجهة الموجه إليها',
         icon: Users,
         sectionId: 'recipients',
+        tabId: 'main',
+      },
+      {
+        key: 'rep-certificates',
+        label: '🏆 الشهادات والإفادات',
+        icon: Award,
+        sectionId: 'certificates',
         tabId: 'main',
       },
     ],
@@ -455,6 +506,13 @@ const NAV_GROUPS: NavGroup[] = [
         sectionId: 'settings',
         tabId: 'addons',
       },
+      {
+        key: 'admin-format',
+        label: 'إعدادات التنسيق الآلي',
+        icon: Sparkles,
+        sectionId: 'settings',
+        tabId: 'format',
+      },
     ],
   },
   {
@@ -491,6 +549,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   onSelectSection,
   onTriggerCvMenuAction,
   onOpenNewReport,
+  onOpenParentReport,
+  libraryCardsCount,
+  onOpenSmartAdd,
   onFocusFollowUp,
   onOpenUtilityModal,
   showAddonsButton,
@@ -549,8 +610,24 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const handleEntryClick = (entry: NavGroupEntry) => {
     setSelectedNavKey(entry.key);
     onCloseMobile?.();
+    if (entry.key === 'cases-new') {
+      if (onOpenSmartAdd) {
+        onOpenSmartAdd('case');
+      } else {
+        onOpenNewReport();
+      }
+      return;
+    }
+    if (entry.key === 'rep-new' && onOpenSmartAdd) {
+      onOpenSmartAdd('report');
+      return;
+    }
     if (entry.actionType === 'new-report') {
       onOpenNewReport();
+      return;
+    }
+    if (entry.actionType === 'parent-report') {
+      onOpenParentReport?.();
       return;
     }
     if (entry.actionType === 'focus-followup') {
@@ -754,7 +831,16 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                           : 'text-[#93C5FD]'
                       }`}
                     />
-                    {!isCollapsed && <span className="truncate">{entry.label}</span>}
+                    {!isCollapsed && (
+                      <span className="truncate flex items-center gap-1.5">
+                        <span>{entry.label}</span>
+                        {entry.key === 'main-library' && typeof libraryCardsCount === 'number' && (
+                          <span className="px-1.5 py-0.2 text-[10px] font-bold rounded bg-[#1E3A8A] text-[#BAE6FD]">
+                            {libraryCardsCount}
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </span>
                 </button>
               );

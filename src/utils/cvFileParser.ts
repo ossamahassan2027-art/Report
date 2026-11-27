@@ -15,8 +15,10 @@ import {
 
 export const DOCX_MIME_TYPE =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export const XLSX_MIME_TYPE =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-export type PreparedFileKind = 'pdf' | 'word' | 'image' | 'text';
+export type PreparedFileKind = 'pdf' | 'word' | 'excel' | 'image' | 'text';
 
 export interface PreparedUploadedFile {
   id: string;
@@ -136,6 +138,26 @@ export async function prepareFileForExtraction(
     };
   }
 
+  // 5. Excel (.xlsx / .xls / .csv)
+  if (
+    file.type === XLSX_MIME_TYPE ||
+    file.type === 'application/vnd.ms-excel' ||
+    /\.(xlsx|xls|csv)$/i.test(lower)
+  ) {
+    const dataUrl = await readFileAsDataUrl(file);
+    const base64Data = dataUrl.split(',')[1] || '';
+    return {
+      id,
+      fileName: file.name,
+      sizeBytes: file.size,
+      sizeLabel: formatFileSize(file.size),
+      kind: 'excel',
+      mimeType: file.type || XLSX_MIME_TYPE,
+      base64Data,
+      previewSnippet: 'ملف Excel جاهز للاستخراج المحلي المباشر عبر SheetJS.',
+    };
+  }
+
   if (lower.endsWith('.doc')) {
     throw new Error(
       'ملفات .doc القديمة غير مدعومة مباشرة — يرجى حفظ الملف بصيغة .docx أو PDF أو صورة ثم المحاولة مجدداً.'
@@ -143,7 +165,7 @@ export async function prepareFileForExtraction(
   }
 
   throw new Error(
-    `صيغة الملف «${file.name}» غير مدعومة. الصيغ المدعومة: PDF، Word (.docx)، صور (PNG/JPG/WEBP)، أو نص (.txt).`
+    `صيغة الملف «${file.name}» غير مدعومة. الصيغ المدعومة: PDF، Word (.docx)، Excel (.xlsx)، صور (PNG/JPG/WEBP)، أو نص (.txt).`
   );
 }
 

@@ -1,6 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import mammoth from 'mammoth';
+import * as XLSX from 'xlsx';
 import { createWorker } from 'tesseract.js';
 import {
   CvCertificationItem,
@@ -26,7 +27,7 @@ export type LocalProgressCallback = (percent: number, stageLabel: string) => voi
 
 export interface LocalPreparedFileLike {
   fileName: string;
-  kind: 'pdf' | 'word' | 'image' | 'text';
+  kind: 'pdf' | 'word' | 'excel' | 'image' | 'text';
   mimeType: string;
   base64Data?: string;
   plainText?: string;
@@ -46,7 +47,7 @@ function isPlaceholderOrEmpty(val: unknown): boolean {
   return !trimmed || trimmed === '[ ... ]' || trimmed === '...';
 }
 
-function toLatinDigits(str: string): string {
+export function toLatinDigits(str: string): string {
   const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
   const easternDigits = '۰۱۲۳۴۵۶۷۸۹';
   return str
@@ -290,6 +291,41 @@ export async function extractTextWithMammoth(
   }
 }
 
+export async function extractTextWithExcel(
+  uint8: Uint8Array,
+  onProgress?: LocalProgressCallback
+): Promise<string> {
+  try {
+    onProgress?.(35, 'جاري قراءة ملف Excel');
+    const wb = XLSX.read(uint8, { type: 'array' });
+    const lines: string[] = [];
+    wb.SheetNames.forEach((sheetName) => {
+      const sheet = wb.Sheets[sheetName];
+      if (!sheet) return;
+      const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: '' });
+      if (rows.length > 0) {
+        if (wb.SheetNames.length > 1) lines.push(sheetName);
+        rows.forEach((row) => {
+          const joined = row
+            .map((cell) => String(cell ?? '').trim())
+            .filter(Boolean)
+            .join(' | ');
+          if (joined) lines.push(joined);
+        });
+      }
+    });
+    onProgress?.(100, 'اكتملت قراءة ملف Excel');
+    const out = lines.join('\n').trim();
+    if (!out) {
+      throw new Error('تعذر قراءة الملف، برجاء تجربة ملف أوضح أو الصق النص يدوياً.');
+    }
+    return out;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('تعذر قراءة الملف')) throw err;
+    throw new Error('تعذر قراءة الملف، برجاء تجربة ملف أوضح أو الصق النص يدوياً.');
+  }
+}
+
 export async function extractRawTextLocally(
   prepared: LocalPreparedFileLike,
   onProgress?: LocalProgressCallback
@@ -311,6 +347,13 @@ export async function extractRawTextLocally(
       throw new Error('تعذر قراءة الملف، برجاء تجربة ملف أوضح أو الصق النص يدوياً.');
     }
     return extractTextWithMammoth(base64ToUint8Array(prepared.base64Data), onProgress);
+  }
+
+  if (prepared.kind === 'excel') {
+    if (!prepared.base64Data) {
+      throw new Error('تعذر قراءة الملف، برجاء تجربة ملف أوضح أو الصق النص يدوياً.');
+    }
+    return extractTextWithExcel(base64ToUint8Array(prepared.base64Data), onProgress);
   }
 
   if (prepared.kind === 'image') {

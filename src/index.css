@@ -121,4 +121,31 @@
     border: none !important;
     border-radius: 0 !important;
   }
+
+  @page certlandscape {
+    size: A4 landscape;
+    margin: 0;
+  }
+
+  body.print-landscape-certs .cert-print-batch-stage {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    display: block !important;
+    pointer-events: auto !important;
+  }
+
+  body.print-landscape-certs .cert-print-page {
+    page: certlandscape;
+    width: 297mm !important;
+    height: 210mm !important;
+    overflow: hidden !important;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  body.print-landscape-certs .cert-print-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
 }

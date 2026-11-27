@@ -4,6 +4,7 @@ import {
   Archive,
   ArrowRight,
   Award,
+  BookOpen,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -31,6 +32,7 @@ import {
   Redo2,
   RotateCcw,
   Share2,
+  Sparkles,
   Stamp,
   Undo2,
   UserCheck,
@@ -39,17 +41,36 @@ import {
 import { AddonsModal } from './components/AddonsModal';
 import { CaseOperationsCards } from './components/CaseOperationsCards';
 import { CaseProfileCard } from './components/CaseProfileCard';
+import { CertificatesStatementsStudio } from './components/CertificatesStatementsStudio';
 import { ClickToEditModal } from './components/ClickToEditModal';
 import { CvAtsStudio, CvMenuActionId, normalizeCvStudioTab } from './components/CvAtsStudio';
 import { EditorPanel, EditorTab } from './components/EditorPanel';
 import { InfographicDocument } from './components/InfographicDocument';
+import { ParentReportWizardModal } from './components/ParentReportWizardModal';
 import { ReportDocument } from './components/ReportDocument';
 import { RightSidebar } from './components/RightSidebar';
+import { SmartAutoFormatModal } from './components/SmartAutoFormatModal';
 import { SmartExportModal } from './components/SmartExportModal';
+import { SmartLibraryStudio } from './components/SmartLibraryStudio';
 import { ActiveModalType, StudioModals } from './components/StudioModals';
 import { StudioUtilityModals, UtilityModalType } from './components/StudioUtilityModals';
+import {
+  UnifiedSmartAddModal,
+  UnifiedSmartAddSavePayload,
+} from './components/UnifiedSmartAddModal';
 import { WorkspaceSectionPanel } from './components/WorkspaceSectionPanel';
-import { SavedCvRecord } from './types/cv';
+import {
+  LibraryCard,
+  ParentReport15Document,
+} from './types/library';
+import {
+  CvData,
+  CvLanguage,
+  CvTemplateId,
+  DEFAULT_AR_CV_DATA,
+  DEFAULT_EN_CV_DATA,
+  SavedCvRecord,
+} from './types/cv';
 import {
   BlockStyleOverride,
   DEFAULT_SECTION_ORDER,
@@ -77,6 +98,7 @@ import {
 import {
   AddonsSettings,
   AssignedSessionItem,
+  AutoFormatSettings,
   CaseProfileMeta,
   ChangeLogEntry,
   ContactSettings,
@@ -84,6 +106,7 @@ import {
   CustomCardItem,
   CustomChartItem,
   CustomTableItem,
+  DEFAULT_AUTO_FORMAT_SETTINGS,
   DEFAULT_CASE_PROFILE_META,
   DEFAULT_REPORT_EXTRAS,
   EvaluationFormEntry,
@@ -94,11 +117,37 @@ import {
   SavedReportRecord,
   SessionLogItem,
   SidebarSectionId,
+  SmartAddDraftItem,
+  SmartAddKind,
   StudioNavigationPrefs,
   ThemeSettings,
   WeeklyTaskItem,
 } from './types/studio';
 import { exportReportToExcel, exportReportToWord } from './utils/exporters';
+import {
+  analyzeAndBuildSmartFormat,
+  SmartFormatAnalysisResult,
+  SmartFormatBundlePayload,
+  SmartFormatScope,
+} from './utils/smartAutoFormatter';
+import {
+  AssistantAnalysisResult,
+  copyCardByIdHelper,
+  createAutomaticBackupSnapshot,
+  ensureInitialPreUpgradeBackup,
+  LibraryAutoBackupSnapshot,
+  loadAutoBackupsList,
+  loadCustomLibraryCards,
+  loadMergedLibraryCards,
+  loadPinnedIds,
+  loadSavedParentReports,
+  persistSavedParentReports,
+  registerWindowLibraryBridge,
+  restoreBackupSnapshotById,
+  saveCustomLibraryCards,
+  savePinnedIds,
+} from './utils/libraryEngine';
+import { convertParentReport15ToReportData } from './utils/trustedEvidenceSources';
 import {
   AccountSecurityConfig,
   copyTextToClipboard,
@@ -106,18 +155,22 @@ import {
   exportReportToJson,
   loadAccountSecurity,
   loadAddonsSettings,
+  loadAutoFormatSettings,
   loadChangeLog,
   loadContactSettings,
   loadSavedCvs,
   loadSavedReports,
+  loadSmartAddDrafts,
   loadStudioPrefs,
   loadThemeSettings,
   persistChangeLog,
   persistSavedCvs,
   persistSavedReports,
+  persistSmartAddDrafts,
   ReportBackupPayload,
   saveAccountSecurity,
   saveAddonsSettings,
+  saveAutoFormatSettings,
   saveContactSettings,
   saveStudioPrefs,
   saveThemeSettings,
@@ -226,6 +279,63 @@ export default function App() {
   const [unlockInput, setUnlockInput] = useState<string>('');
   const [unlockError, setUnlockError] = useState<string>('');
 
+  // Feature A: Smart Auto-Formatting State
+  const [autoFormatSettings, setAutoFormatSettings] = useState<AutoFormatSettings>(() =>
+    loadAutoFormatSettings()
+  );
+  const [autoFormatModalState, setAutoFormatModalState] = useState<{
+    open: boolean;
+    scope: SmartFormatScope;
+    analysis: SmartFormatAnalysisResult | null;
+  }>({ open: false, scope: 'report', analysis: null });
+  const [lastFormatUndoSnapshot, setLastFormatUndoSnapshot] = useState<{
+    scope: SmartFormatScope;
+    payload: SmartFormatBundlePayload;
+    cvLang?: CvLanguage;
+  } | null>(null);
+  const cvSnapshotRef = useRef<{
+    cv: CvData;
+    language: CvLanguage;
+    templateId: CvTemplateId;
+  }>({
+    cv: DEFAULT_AR_CV_DATA,
+    language: 'ar',
+    templateId: 'ats-classic',
+  });
+  const [externalCvOverride, setExternalCvOverride] = useState<{
+    ar?: CvData;
+    en?: CvData;
+    lang?: CvLanguage;
+    seq: number;
+  } | null>(null);
+
+  // Feature B: Unified Smart Add Modal & Drafts State
+  const [smartAddModalState, setSmartAddModalState] = useState<{
+    open: boolean;
+    kind: SmartAddKind;
+    draft: SmartAddDraftItem | null;
+  }>({ open: false, kind: 'report', draft: null });
+  const [smartAddDrafts, setSmartAddDrafts] = useState<SmartAddDraftItem[]>(() =>
+    loadSmartAddDrafts()
+  );
+
+  // Feature C: Smart Library (81 Cards), Backups & Parent 15-Section Report State
+  const [libraryCards, setLibraryCards] = useState<LibraryCard[]>(() => {
+    ensureInitialPreUpgradeBackup();
+    return loadMergedLibraryCards();
+  });
+  const [activeLibraryCardId, setActiveLibraryCardId] = useState<string | null>(null);
+  const [libraryBackups, setLibraryBackups] = useState<LibraryAutoBackupSnapshot[]>(() =>
+    loadAutoBackupsList()
+  );
+  const [parentReportWizardOpen, setParentReportWizardOpen] = useState<boolean>(false);
+  const [parentReportInitialComplaint, setParentReportInitialComplaint] = useState<string>('');
+
+  const [toastJumpAction, setToastJumpAction] = useState<{
+    label: string;
+    onClick: () => void;
+  } | null>(null);
+
   const stageContainerRef = useRef<HTMLDivElement | null>(null);
   const caseProfileAnchorRef = useRef<HTMLDivElement | null>(null);
   const previewAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -248,11 +358,21 @@ export default function App() {
     [activeData, selections]
   );
 
-  const showToast = (msg: string) => {
+  const showToast = (
+    msg: string,
+    jump?: { label: string; onClick: () => void } | null
+  ) => {
     setToastMessage(msg);
+    setToastJumpAction(jump ?? null);
     setTimeout(() => {
-      setToastMessage((curr) => (curr === msg ? '' : curr));
-    }, 3500);
+      setToastMessage((curr) => {
+        if (curr === msg) {
+          setToastJumpAction(null);
+          return '';
+        }
+        return curr;
+      });
+    }, 4500);
   };
 
   const appendChangeLog = (action: string, details: string) => {
@@ -940,6 +1060,36 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   });
 
+  // Compatibility Bridge exposing exact global names: libraryCards, openLibrary, renderLibrary, openCard, copyCard, togglePin
+  const handleToggleLibraryPin = (id: string) => {
+    const currentPinned = loadPinnedIds();
+    const exists = currentPinned.includes(id);
+    const nextPinned = exists ? currentPinned.filter((x) => x !== id) : [...currentPinned, id];
+    savePinnedIds(nextPinned);
+    setLibraryCards(loadMergedLibraryCards());
+    showToast(exists ? 'تم إلغاء تثبيت البطاقة' : 'تم تثبيت البطاقة في مكتبتك');
+  };
+
+  const handleCopyLibraryCard = async (id: string): Promise<boolean> => {
+    const ok = await copyCardByIdHelper(id, libraryCards);
+    showToast(ok ? 'تم نسخ البطاقة بالكامل إلى الحافظة' : 'تعذر نسخ البطاقة');
+    return ok;
+  };
+
+  useEffect(() => {
+    registerWindowLibraryBridge({
+      libraryCards,
+      openLibrary: () => handleSelectSidebarSection('library', 'cards'),
+      renderLibrary: () => setLibraryCards(loadMergedLibraryCards()),
+      openCard: (id: string) => {
+        setActiveLibraryCardId(id);
+        handleSelectSidebarSection('library', 'cards');
+      },
+      copyCard: handleCopyLibraryCard,
+      togglePin: handleToggleLibraryPin,
+    });
+  });
+
   useEffect(() => {
     const updateScale = () => {
       if (zoomPreference !== 'fit') {
@@ -1222,10 +1372,39 @@ export default function App() {
     }
   };
 
+  const runSilentPreExportFormat = (): {
+    nextData: ReportData;
+    nextExtras: ReportExtras;
+  } => {
+    if (!autoFormatSettings.formatOnExport) {
+      return { nextData: filteredData, nextExtras: extras };
+    }
+    const analysis = analyzeAndBuildSmartFormat({
+      scope: 'report',
+      settings: autoFormatSettings,
+      reportData: activeData,
+      reportLanguage: language,
+      reportExtras: extras,
+      themeSettings,
+    });
+    const formattedData = analysis.formattedPayload.reportData || activeData;
+    const formattedExtras = analysis.formattedPayload.reportExtras || extras;
+    handleUpdateActiveData(formattedData);
+    setExtras(formattedExtras);
+    if (analysis.formattedPayload.themeSettings) {
+      handleUpdateThemeSettings(analysis.formattedPayload.themeSettings, false);
+    }
+    return {
+      nextData: getFilteredReportData(formattedData, selections),
+      nextExtras: formattedExtras,
+    };
+  };
+
   const handleExportWord = async () => {
     setExportState('exporting');
     try {
-      await exportReportToWord(filteredData, visibility, language, accentTheme, extras);
+      const { nextData, nextExtras } = runSilentPreExportFormat();
+      await exportReportToWord(nextData, visibility, language, accentTheme, nextExtras);
       setExportState('done');
       showToast('تم تصدير ملف Word بنجاح');
       setTimeout(() => setExportState('idle'), 2500);
@@ -1238,8 +1417,9 @@ export default function App() {
   const handleExportBilingualWord = async () => {
     setExportState('exporting');
     try {
+      const { nextExtras } = runSilentPreExportFormat();
       const arFiltered = getFilteredReportData(arData, selections);
-      await exportReportToWord(arFiltered, visibility, 'ar', accentTheme, extras);
+      await exportReportToWord(arFiltered, visibility, 'ar', accentTheme, nextExtras);
       let resolvedEn = enData;
       if (!resolvedEn) {
         resolvedEn = await translateReport(arData, 'en');
@@ -1247,7 +1427,7 @@ export default function App() {
       }
       const enFiltered = getFilteredReportData(resolvedEn, selections);
       setTimeout(async () => {
-        await exportReportToWord(enFiltered, visibility, 'en', accentTheme, extras);
+        await exportReportToWord(enFiltered, visibility, 'en', accentTheme, nextExtras);
       }, 300);
       setExportState('done');
       showToast('تم تصدير النسختين العربية والإنجليزية (Word)');
@@ -1266,7 +1446,491 @@ export default function App() {
   };
 
   const handlePrintPdf = () => {
-    window.print();
+    runSilentPreExportFormat();
+    setTimeout(() => window.print(), 80);
+  };
+
+  // Feature A Helpers: Open Auto-Format Modal, Apply, and Undo
+  const handleUpdateAutoFormatSettings = (next: AutoFormatSettings, persist: boolean) => {
+    setAutoFormatSettings(next);
+    if (persist) {
+      saveAutoFormatSettings(next);
+    }
+  };
+
+  const handleOpenAutoFormat = (
+    scope: SmartFormatScope,
+    cvPayload?: { cv: CvData; language: CvLanguage; templateId: CvTemplateId }
+  ) => {
+    const resolvedCv = cvPayload || cvSnapshotRef.current;
+    const analysis = analyzeAndBuildSmartFormat({
+      scope,
+      settings: autoFormatSettings,
+      reportData: activeData,
+      reportLanguage: language,
+      reportExtras: extras,
+      themeSettings,
+      cvData: resolvedCv.cv,
+      cvLanguage: resolvedCv.language,
+      cvTemplateId: resolvedCv.templateId,
+    });
+    setAutoFormatModalState({
+      open: true,
+      scope,
+      analysis,
+    });
+  };
+
+  const handleApplyAutoFormatPayload = (
+    payload: SmartFormatBundlePayload,
+    compactReportSpacing?: boolean,
+    labelSuffix = 'تطبيق التنسيق الآلي الذكي'
+  ) => {
+    const scope = autoFormatModalState.scope;
+    const analysis = autoFormatModalState.analysis;
+
+    if (analysis) {
+      setLastFormatUndoSnapshot({
+        scope,
+        payload: analysis.originalSnapshot,
+        cvLang: cvSnapshotRef.current.language,
+      });
+    }
+
+    if (autoFormatSettings.backupBeforeFormat) {
+      const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      appendChangeLog(`نسخة قبل التنسيق الآلي - ${stamp}`, labelSuffix);
+    }
+
+    if (scope !== 'cv') {
+      pushUndoSnapshot();
+    }
+
+    if (payload.reportData) {
+      handleUpdateActiveData(payload.reportData);
+    }
+    if (payload.reportExtras) {
+      setExtras(payload.reportExtras);
+    } else if (payload.tasks || payload.evaluations) {
+      setExtras((prev) => ({
+        ...prev,
+        weeklyTasks: payload.tasks ?? prev.weeklyTasks,
+        selectedEvaluationForms: payload.evaluations ?? prev.selectedEvaluationForms,
+      }));
+    }
+
+    if (compactReportSpacing) {
+      handleUpdateThemeSettings(
+        { ...themeSettings, density: 'compact', fontSize: 'small' },
+        false
+      );
+    } else if (payload.themeSettings) {
+      handleUpdateThemeSettings(payload.themeSettings, false);
+    }
+
+    if (payload.cvData) {
+      const targetLang = cvSnapshotRef.current.language;
+      setExternalCvOverride((prev) => ({
+        ar: targetLang === 'ar' ? payload.cvData : undefined,
+        en: targetLang === 'en' ? payload.cvData : undefined,
+        lang: targetLang,
+        seq: (prev?.seq || 0) + 1,
+      }));
+    }
+
+    showToast('تم تطبيق التنسيق الآلي الذكي وحفظ نسخة احتياطية قبل التنسيق ✓');
+  };
+
+  const handleUndoAutoFormat = () => {
+    if (!lastFormatUndoSnapshot) return;
+    const { scope, payload, cvLang } = lastFormatUndoSnapshot;
+    if (payload.reportData) {
+      handleUpdateActiveData(payload.reportData);
+    }
+    if (payload.reportExtras) {
+      setExtras(payload.reportExtras);
+    }
+    if (payload.themeSettings) {
+      handleUpdateThemeSettings(payload.themeSettings, false);
+    }
+    if (scope === 'cv' && payload.cvData) {
+      const targetLang = cvLang || 'ar';
+      setExternalCvOverride((prev) => ({
+        ar: targetLang === 'ar' ? payload.cvData : undefined,
+        en: targetLang === 'en' ? payload.cvData : undefined,
+        lang: targetLang,
+        seq: (prev?.seq || 0) + 1,
+      }));
+    }
+    setLastFormatUndoSnapshot(null);
+    appendChangeLog('تراجع التنسيق الآلي', 'استعادة النسخة الأصلية قبل التنسيق الآلي');
+    showToast('تم التراجع عن التنسيق الآلي واستعادة النسخة الأصلية ✓');
+  };
+
+  // Feature B Helpers: Unified Smart Add Modal Open, Drafts & Save
+  const handleOpenSmartAdd = (kind: SmartAddKind, draft?: SmartAddDraftItem) => {
+    setSmartAddModalState({
+      open: true,
+      kind,
+      draft: draft ?? null,
+    });
+  };
+
+  const handleSaveSmartAddDraft = (draft: SmartAddDraftItem) => {
+    const next = [draft, ...smartAddDrafts.filter((d) => d.id !== draft.id)];
+    setSmartAddDrafts(next);
+    persistSmartAddDrafts(next);
+    appendChangeLog('مسودة ذكية', `حفظ مسودة: ${draft.title}`);
+    showToast('تم حفظ المسودة بنجاح ✓');
+  };
+
+  const handleDeleteSmartAddDraft = (id: string) => {
+    const next = smartAddDrafts.filter((d) => d.id !== id);
+    setSmartAddDrafts(next);
+    persistSmartAddDrafts(next);
+    showToast('تم حذف المسودة');
+  };
+
+  const handleSaveFromUnifiedSmartAdd = (payload: UnifiedSmartAddSavePayload) => {
+    const { kind, fields, extraParts } = payload;
+    const todayIso = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
+
+    const getSavedDraftPair = (): { ar: CvData; en: CvData } => {
+      try {
+        const raw = localStorage.getItem('shamel_active_cv_draft_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return {
+            ar: parsed?.ar || DEFAULT_AR_CV_DATA,
+            en: parsed?.en || DEFAULT_EN_CV_DATA,
+          };
+        }
+      } catch {
+        // fallback to default
+      }
+      return { ar: DEFAULT_AR_CV_DATA, en: DEFAULT_EN_CV_DATA };
+    };
+
+    if (kind === 'report' || kind === 'case') {
+      const nextRecs = fields.recommendations
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const nextReport: ReportData = {
+        ...createBlankReportData('إلى من يهمه الأمر / [ ... ]'),
+        reportTitle:
+          kind === 'case'
+            ? `ملف وتقييم حالة: ${fields.childName}`
+            : `تقرير تربوي وتقييمي: ${fields.childName}`,
+        childName: fields.childName || '[ ... ]',
+        age: fields.age || '[ ... ]',
+        diagnosis: fields.diagnosis || '[ ... ]',
+        reportDate: fields.reportDate || todayIso,
+        signDate: fields.reportDate || todayIso,
+        phone: fields.phone || activeData.phone || '01069579757',
+        backgroundParagraph1: fields.mainComplaint || '[ ... ]',
+        opinionParagraph1: fields.evaluation || '[ ... ]',
+        recommendations: nextRecs.length > 0 ? nextRecs : ['[ ... ]'],
+        preparedBy: activeData.preparedBy,
+        professionalTitle: activeData.professionalTitle,
+        centerName: activeData.centerName,
+        centerCity: activeData.centerCity,
+      };
+
+      const nextCustomCards: CustomCardItem[] = extraParts.map((p) => ({
+        id: p.id,
+        title: p.title,
+        body: p.body,
+      }));
+
+      const nextGoals =
+        fields.planGoal && fields.planGoal.trim() !== '[ ... ]'
+          ? fields.planGoal
+              .split('\n')
+              .map((g, i) => ({
+                id: `goal-${Date.now()}-${i}`,
+                goal: g.trim(),
+                targetDuration: '4 أسابيع',
+                owner: 'الأسرة والأخصائي',
+                progress: 'قيد التنفيذ',
+              }))
+              .filter((g) => g.goal)
+          : [];
+
+      const nextExtras: ReportExtras = {
+        ...DEFAULT_REPORT_EXTRAS,
+        caseProfile: {
+          ...DEFAULT_CASE_PROFILE_META,
+          guardianName: fields.guardianName || '[ ... ]',
+          guardianPhone: fields.phone || '[ ... ]',
+          mainComplaint: fields.mainComplaint || '[ ... ]',
+        },
+        planGoals: nextGoals,
+        customCards: nextCustomCards,
+        extrasVisibility: {
+          ...DEFAULT_REPORT_EXTRAS.extrasVisibility,
+          plan: nextGoals.length > 0,
+        },
+      };
+
+      const nextSel = createFullSelections(nextReport);
+      const recName = `${kind === 'case' ? 'حالة' : 'تقرير'} - ${nextReport.childName}`;
+      const newRecord: SavedReportRecord = {
+        id: `rep-${Date.now()}`,
+        name: recName,
+        isDraft: false,
+        updatedAt: todayIso.replace(/\//g, '-'),
+        language: 'ar',
+        arData: nextReport,
+        enData: null,
+        visibility: DEFAULT_SECTION_VISIBILITY,
+        selections: nextSel,
+        extras: nextExtras,
+      };
+
+      const nextList = [newRecord, ...savedReports];
+      setSavedReports(nextList);
+      persistSavedReports(nextList);
+      setActiveRecordId(newRecord.id);
+      setArData(nextReport);
+      setEnData(null);
+      setLanguage('ar');
+      setVisibility(DEFAULT_SECTION_VISIBILITY);
+      setSelections(nextSel);
+      setExtras(nextExtras);
+      setMobilePane('preview');
+      setSmartAddModalState({ open: false, kind, draft: null });
+      appendChangeLog(
+        kind === 'case' ? 'إضافة حالة ذكية' : 'إضافة تقرير ذكي',
+        recName
+      );
+      showToast(`تم إضافة ${kind === 'case' ? 'الحالة' : 'التقرير'} بنجاح ✓`, {
+        label: 'عرض المستند',
+        onClick: () => {
+          handleSelectSidebarSection('dashboard', 'all');
+          setMobilePane('preview');
+          setTimeout(
+            () => previewAnchorRef.current?.scrollIntoView({ behavior: 'smooth' }),
+            80
+          );
+        },
+      });
+      return;
+    }
+
+    if (kind === 'cv') {
+      const pair = getSavedDraftPair();
+      const baseCv = fields.cvFull
+        ? {
+            ...fields.cvFull,
+            fullName: fields.fullName || fields.cvFull.fullName,
+            phone: fields.phone || fields.cvFull.phone,
+            email: fields.email || fields.cvFull.email,
+            targetJobTitle: fields.targetJobTitle || fields.cvFull.targetJobTitle,
+            location: fields.location || fields.cvFull.location,
+            summary: fields.summary || fields.cvFull.summary,
+          }
+        : {
+            ...pair.ar,
+            fullName: fields.fullName || '[ ... ]',
+            phone: fields.phone || '[ ... ]',
+            email: fields.email || '[ ... ]',
+            targetJobTitle: fields.targetJobTitle || '[ ... ]',
+            location: fields.location || '[ ... ]',
+            summary: fields.summary || '[ ... ]',
+          };
+
+      const newCvRec: SavedCvRecord = {
+        id: `cv-${Date.now()}`,
+        name: `${baseCv.fullName || 'سيرة ذاتية'} - ATS`,
+        updatedAt: todayIso.replace(/\//g, '-'),
+        language: 'ar',
+        templateId: 'ats-classic',
+        arData: baseCv,
+        enData: pair.en,
+      };
+      handleSaveCvRecord(newCvRec);
+      setExternalCvOverride((prev) => ({
+        ar: baseCv,
+        en: pair.en,
+        lang: 'ar',
+        seq: (prev?.seq || 0) + 1,
+      }));
+      handleSelectSidebarSection('cv', 'new-cv');
+      setSmartAddModalState({ open: false, kind, draft: null });
+      appendChangeLog('إضافة CV ذكي', newCvRec.name);
+      showToast('تم إضافة CV بنجاح ✓', {
+        label: 'عرض المستند',
+        onClick: () => handleSelectSidebarSection('cv', 'new-cv'),
+      });
+      return;
+    }
+
+    if (kind === 'certificate') {
+      const pair = getSavedDraftPair();
+      const currentTarget =
+        cvSnapshotRef.current.language === 'en' ? pair.en : pair.ar;
+      const newCert = {
+        id: `cert-${Date.now()}`,
+        name: fields.certTitle || '[ ... ]',
+        issuer: fields.certIssuer || '[ ... ]',
+        date: fields.certDate || todayIso,
+      };
+      const updatedCv: CvData = {
+        ...currentTarget,
+        certifications: [...currentTarget.certifications, newCert],
+        trainings: [
+          ...currentTarget.trainings,
+          {
+            id: `trn-${Date.now()}`,
+            title: `${fields.certTitle} — ${fields.certSummary3Lines.split('\n')[0] || ''}`.trim(),
+            provider: fields.certIssuer || '[ ... ]',
+            dateRange: fields.certDate || todayIso,
+          },
+        ],
+      };
+      setExternalCvOverride((prev) => ({
+        ar: cvSnapshotRef.current.language === 'ar' ? updatedCv : undefined,
+        en: cvSnapshotRef.current.language === 'en' ? updatedCv : undefined,
+        lang: cvSnapshotRef.current.language,
+        seq: (prev?.seq || 0) + 1,
+      }));
+      handleSelectSidebarSection('cv', 'new-cv');
+      setSmartAddModalState({ open: false, kind, draft: null });
+      appendChangeLog('إضافة شهادة ذكية', fields.certTitle || 'شهادة');
+      showToast('تم إضافة الشهادة بنجاح ✓', {
+        label: 'عرض المستند',
+        onClick: () => handleSelectSidebarSection('cv', 'new-cv'),
+      });
+      return;
+    }
+
+    if (kind === 'evaluation') {
+      const newEval: EvaluationFormEntry = {
+        id: `eval-smart-${Date.now()}`,
+        category: 'behavior',
+        title: fields.evalTitle || 'استمارة تقييم جديدة',
+        fields: [
+          { label: 'الأعراض والملاحظات', value: fields.evalSymptoms || '[ ... ]' },
+          { label: 'الدرجات والمستوى', value: fields.evalScores || '[ ... ]' },
+          { label: 'نوع الجلسات المقترح', value: fields.evalSessionTypes || '[ ... ]' },
+          { label: 'ملاحظات الأخصائي', value: fields.evalNotes || '[ ... ]' },
+        ],
+      };
+      pushUndoSnapshot();
+      setExtras((prev) => ({
+        ...prev,
+        selectedEvaluationForms: [...prev.selectedEvaluationForms, newEval],
+        extrasVisibility: { ...prev.extrasVisibility, evaluations: true },
+      }));
+      handleSelectSidebarSection('evaluations', 'comprehensive');
+      setSmartAddModalState({ open: false, kind, draft: null });
+      appendChangeLog('إضافة تقييم ذكي', newEval.title);
+      showToast('تم إضافة التقييم بنجاح ✓', {
+        label: 'عرض المستند',
+        onClick: () => {
+          setMobilePane('preview');
+          setTimeout(
+            () => previewAnchorRef.current?.scrollIntoView({ behavior: 'smooth' }),
+            80
+          );
+        },
+      });
+      return;
+    }
+
+    if (kind === 'task') {
+      const newTask: WeeklyTaskItem = {
+        id: `task-${Date.now()}`,
+        day: fields.taskDay || 'الأحد',
+        task: fields.taskText || '[ ... ]',
+        owner: fields.taskOwner || 'الأخصائي',
+        status: fields.taskStatus || 'لم يتم',
+      };
+      pushUndoSnapshot();
+      setExtras((prev) => ({
+        ...prev,
+        weeklyTasks: [...(prev.weeklyTasks || []), newTask],
+      }));
+      handleSelectSidebarSection('dashboard', 'tasks');
+      setSmartAddModalState({ open: false, kind, draft: null });
+      appendChangeLog('إضافة مهمة ذكية', newTask.task);
+      showToast('تم إضافة المهمة بنجاح ✓', {
+        label: 'عرض المستند',
+        onClick: () => handleSelectSidebarSection('dashboard', 'tasks'),
+      });
+      return;
+    }
+
+    // Single CV sections: experience, skill, education
+    const pair = getSavedDraftPair();
+    const targetLang = cvSnapshotRef.current.language;
+    const baseCv = targetLang === 'en' ? pair.en : pair.ar;
+    let updatedCv: CvData = baseCv;
+
+    if (kind === 'experience') {
+      updatedCv = {
+        ...baseCv,
+        experiences: [
+          ...baseCv.experiences,
+          {
+            id: `exp-${Date.now()}`,
+            jobTitle: fields.expJobTitle || '[ ... ]',
+            company: fields.expCompany || '[ ... ]',
+            location: '[ ... ]',
+            dateRange: fields.expDateRange || todayIso,
+            bullets: fields.expBullets
+              .split('\n')
+              .map((l) => l.trim())
+              .filter(Boolean),
+          },
+        ],
+      };
+    } else if (kind === 'skill') {
+      const names = fields.skillName
+        .split(/[,،\n]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const additions = (names.length > 0 ? names : ['[ ... ]']).map((nm, i) => ({
+        id: `sk-${Date.now()}-${i}`,
+        name: nm,
+        level: fields.skillLevel || 'متقدم',
+      }));
+      updatedCv = {
+        ...baseCv,
+        skills: [...baseCv.skills, ...additions],
+      };
+    } else if (kind === 'education') {
+      updatedCv = {
+        ...baseCv,
+        education: [
+          ...baseCv.education,
+          {
+            id: `edu-${Date.now()}`,
+            degree: fields.eduDegree || '[ ... ]',
+            institution: fields.eduInstitution || '[ ... ]',
+            dateRange: fields.eduDateRange || todayIso,
+            details: '',
+          },
+        ],
+      };
+    }
+
+    setExternalCvOverride((prev) => ({
+      ar: targetLang === 'ar' ? updatedCv : undefined,
+      en: targetLang === 'en' ? updatedCv : undefined,
+      lang: targetLang,
+      seq: (prev?.seq || 0) + 1,
+    }));
+    handleSelectSidebarSection('cv', 'new-cv');
+    setSmartAddModalState({ open: false, kind, draft: null });
+    appendChangeLog('إضافة بند CV ذكي', `${kind}`);
+    const kindWord =
+      kind === 'experience' ? 'الخبرة' : kind === 'skill' ? 'المهارة' : 'التعليم';
+    showToast(`تم إضافة ${kindWord} بنجاح ✓`, {
+      label: 'عرض المستند',
+      onClick: () => handleSelectSidebarSection('cv', 'new-cv'),
+    });
   };
 
   // New Studio Handlers
@@ -1644,7 +2308,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => {
-                if (activeSidebarSection === 'cv') {
+                if (activeSidebarSection === 'cv' || activeSidebarSection === 'library' || activeSidebarSection === 'certificates') {
                   handleSelectSidebarSection('dashboard', 'all');
                 }
                 setShowCaseProfileCard(true);
@@ -1662,7 +2326,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => {
-                if (activeSidebarSection === 'cv') {
+                if (activeSidebarSection === 'cv' || activeSidebarSection === 'library' || activeSidebarSection === 'certificates') {
                   handleSelectSidebarSection('dashboard', 'all');
                 }
                 setViewFormat('a4');
@@ -1701,8 +2365,45 @@ export default function App() {
 
             <button
               type="button"
+              onClick={() => handleSelectSidebarSection('certificates', 'main')}
+              className={`min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#1A237E] hover:bg-[#1E3A8A] shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer ${buttonRadiusClass}`}
+              title="استوديو الشهادات والإفادات الجماعية (16 قالباً + توليد 40 شهادة)"
+            >
+              <Award className="w-3.5 h-3.5 text-[#FACC15]" />
+              <span>🏆 الشهادات والإفادات</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectSidebarSection('library', 'cards')}
+              className={`min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#0A1633] hover:bg-[#13244D] shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer ${buttonRadiusClass}`}
+              title="المكتبة الذكية ومساعد الشكاوى ومحرك التفريغ"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>📚 مكتبتي ({libraryCards.length})</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
-                if (activeSidebarSection === 'cv') {
+                setParentReportInitialComplaint(
+                  extras.caseProfile?.mainComplaint && extras.caseProfile.mainComplaint !== '[ ... ]'
+                    ? extras.caseProfile.mainComplaint
+                    : ''
+                );
+                setParentReportWizardOpen(true);
+              }}
+              className={`min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#1D4ED8] hover:bg-[#1E40AF] shadow-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer ${buttonRadiusClass}`}
+              title="توليد تقرير ولي أمر 15 قسم بمراجعة وتأكيد إلزامي"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>تقرير ولي أمر (15)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (activeSidebarSection === 'cv' || activeSidebarSection === 'library' || activeSidebarSection === 'certificates') {
                   handleSelectSidebarSection('dashboard', 'all');
                 }
                 setShowEditor((prev) => !prev);
@@ -1726,8 +2427,10 @@ export default function App() {
             </button>
           </div>
 
-          {/* Streamlined Language, Format & Stamp Controls (hidden in CV view to avoid clutter) */}
-          {activeSidebarSection !== 'cv' && (
+          {/* Streamlined Language, Format & Stamp Controls (hidden in CV/Library/Certificates views to avoid clutter) */}
+          {activeSidebarSection !== 'cv' &&
+            activeSidebarSection !== 'library' &&
+            activeSidebarSection !== 'certificates' && (
             <div className="flex items-center gap-2 overflow-x-auto pb-0.5 lg:pb-0 no-scrollbar">
               {/* Bilingual Switch */}
               <div
@@ -1847,9 +2550,22 @@ export default function App() {
 
       {/* Live Feedback Toast Banner */}
       {toastMessage && (
-        <div className="no-print fixed top-4 left-4 z-50 flex items-center gap-2 px-4 py-2.5 bg-[#ECFDF5] border border-[#A7F3D0] text-[#14532D] text-xs font-bold shadow-lg rounded-lg">
+        <div className="no-print fixed top-4 left-4 z-50 flex items-center gap-2.5 px-4 py-2.5 bg-[#ECFDF5] border border-[#A7F3D0] text-[#14532D] text-xs font-bold shadow-lg rounded-lg">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{toastMessage}</span>
+          {toastJumpAction && (
+            <button
+              type="button"
+              onClick={() => {
+                toastJumpAction.onClick();
+                setToastMessage('');
+                setToastJumpAction(null);
+              }}
+              className="px-2 py-0.5 rounded bg-[#059669] hover:bg-[#047857] text-white text-[11px] font-bold cursor-pointer"
+            >
+              {toastJumpAction.label}
+            </button>
+          )}
         </div>
       )}
 
@@ -1869,9 +2585,19 @@ export default function App() {
               seq: (prev?.seq || 0) + 1,
             }))
           }
-          onOpenNewReport={() => setActiveModal('new-report')}
+          onOpenNewReport={() => handleOpenSmartAdd('report')}
+          onOpenParentReport={() => {
+            setParentReportInitialComplaint(
+              extras.caseProfile?.mainComplaint && extras.caseProfile.mainComplaint !== '[ ... ]'
+                ? extras.caseProfile.mainComplaint
+                : ''
+            );
+            setParentReportWizardOpen(true);
+          }}
+          libraryCardsCount={libraryCards.length}
+          onOpenSmartAdd={(kind) => handleOpenSmartAdd(kind)}
           onFocusFollowUp={() => {
-            if (activeSidebarSection === 'cv') {
+            if (activeSidebarSection === 'cv' || activeSidebarSection === 'library' || activeSidebarSection === 'certificates') {
               handleSelectSidebarSection('dashboard', 'all');
             }
             setShowCaseProfileCard(true);
@@ -1911,7 +2637,9 @@ export default function App() {
               {(
                 [
                   ['dashboard', 'التقارير'],
+                  ['library', `مكتبتي (${libraryCards.length})`],
                   ['cv', 'سيرة ATS'],
+                  ['certificates', '🏆 الشهادات والإفادات'],
                   ['summary', 'الملخص'],
                   ['evaluations', 'التقييم'],
                   ['plan', 'الخطة'],
@@ -1950,6 +2678,153 @@ export default function App() {
               onDeleteCvRecord={handleDeleteCvRecord}
               onNotify={showToast}
               pendingMenuAction={pendingCvMenuAction}
+              externalCvOverride={externalCvOverride}
+              onActiveCvSnapshot={(snap) => {
+                cvSnapshotRef.current = snap;
+              }}
+              onOpenCvAutoFormat={(payload) => handleOpenAutoFormat('cv', payload)}
+              onOpenSmartAdd={(kind) => handleOpenSmartAdd(kind)}
+            />
+          ) : activeSidebarSection === 'certificates' ? (
+            <CertificatesStatementsStudio
+              buttonRadiusClass={buttonRadiusClass}
+              onNotify={showToast}
+            />
+          ) : activeSidebarSection === 'library' ? (
+            <SmartLibraryStudio
+              buttonRadiusClass={buttonRadiusClass}
+              libraryCards={libraryCards}
+              activeCardId={activeLibraryCardId}
+              backupsList={libraryBackups}
+              onSetActiveCardId={setActiveLibraryCardId}
+              onTogglePin={handleToggleLibraryPin}
+              onCopyCard={handleCopyLibraryCard}
+              onAddNewCard={(card) => {
+                createAutomaticBackupSnapshot('نسخة احتياطية قبل إضافة بطاقة');
+                const custom = loadCustomLibraryCards();
+                saveCustomLibraryCards([card, ...custom.filter((c) => c.id !== card.id)]);
+                setLibraryCards(loadMergedLibraryCards());
+                setLibraryBackups(loadAutoBackupsList());
+                appendChangeLog('المكتبة الذكية', `إضافة بطاقة جديدة: ${card.title}`);
+                showToast(`تمت إضافة البطاقة "${card.title}" إلى مكتبتك`);
+              }}
+              onImportCardsBatch={(imported) => {
+                createAutomaticBackupSnapshot('نسخة احتياطية قبل استيراد بطاقات JSON');
+                const custom = loadCustomLibraryCards();
+                const mergedMap = new Map(custom.map((c) => [c.id, c]));
+                imported.forEach((c) => mergedMap.set(c.id, c));
+                saveCustomLibraryCards(Array.from(mergedMap.values()));
+                setLibraryCards(loadMergedLibraryCards());
+                setLibraryBackups(loadAutoBackupsList());
+                appendChangeLog('المكتبة الذكية', `استيراد ${imported.length} بطاقة JSON`);
+                showToast(`تم استيراد ${imported.length} بطاقة بنجاح`);
+              }}
+              onCreateBackupNow={() => {
+                createAutomaticBackupSnapshot('نسخة احتياطية يدوية للمكتبة والتقارير');
+                setLibraryBackups(loadAutoBackupsList());
+                showToast('تم حفظ نسخة احتياطية جديدة بنجاح');
+              }}
+              onRestoreOldBackup={(backupId) => {
+                const res = restoreBackupSnapshotById(backupId);
+                if (!res.restored) {
+                  showToast('لا توجد نسخة احتياطية محفوظة للاستعادة');
+                  return;
+                }
+                setLibraryCards(res.cards);
+                setLibraryBackups(loadAutoBackupsList());
+                showToast(`تمت الاستعادة من: ${res.snapshotLabel}`);
+              }}
+              onGenerateFullPlanIntoReport={(analysis, complaintText) => {
+                pushUndoSnapshot();
+                const newGoals = analysis.goalsSMART.map((g, i) => ({
+                  id: `lib-goal-${Date.now()}-${i}`,
+                  goal: g,
+                  targetDuration: '6 أسابيع',
+                  owner: 'الأسرة والأخصائي والمدرسة',
+                  progress: 'قيد التنفيذ',
+                }));
+                const mergedRecs = Array.from(
+                  new Set([
+                    ...activeData.recommendations,
+                    ...analysis.recommendationsFamily,
+                    ...analysis.recommendationsSchool,
+                  ])
+                );
+                handleUpdateActiveData({
+                  ...activeData,
+                  diagnosis: analysis.suggestedCondition,
+                  backgroundParagraph1:
+                    complaintText.trim() || activeData.backgroundParagraph1,
+                  recommendations: mergedRecs,
+                  coreGoalQuote: analysis.goalsSMART[0] || activeData.coreGoalQuote,
+                });
+                setSelections({
+                  ...selections,
+                  recommendations: mergedRecs.map(() => true),
+                });
+                setExtras((prev) => ({
+                  ...prev,
+                  planGoals: [...prev.planGoals, ...newGoals],
+                  extrasVisibility: { ...prev.extrasVisibility, plan: true },
+                }));
+                appendChangeLog('المساعد الآلي', `توليد خطة كاملة: ${analysis.suggestedCondition}`);
+                showToast('تم توليد الخطة الكاملة والأهداف والتوصيات داخل التقرير ✓', {
+                  label: 'معاينة التقرير',
+                  onClick: () => handleSelectSidebarSection('dashboard', 'all'),
+                });
+              }}
+              onOpenParentReportWithComplaint={(complaint) => {
+                setParentReportInitialComplaint(complaint);
+                setParentReportWizardOpen(true);
+              }}
+              onInsertCardIntoReport={(card, mode) => {
+                pushUndoSnapshot();
+                if (mode === 'goals' || mode === 'full') {
+                  const gItems = card.goalsSMART.map((g, i) => ({
+                    id: `card-g-${Date.now()}-${i}`,
+                    goal: g,
+                    targetDuration: '4-6 أسابيع',
+                    owner: 'الأخصائي والأسرة',
+                    progress: 'مخطط',
+                  }));
+                  setExtras((prev) => ({
+                    ...prev,
+                    planGoals: [...prev.planGoals, ...gItems],
+                    extrasVisibility: { ...prev.extrasVisibility, plan: true },
+                  }));
+                }
+                if (mode === 'recs' || mode === 'full') {
+                  const recAdds = [...card.recommendationsFamily, ...card.recommendationsSchool];
+                  const merged = Array.from(new Set([...activeData.recommendations, ...recAdds]));
+                  handleUpdateActiveData({ ...activeData, recommendations: merged });
+                  setSelections((prev) => ({
+                    ...prev,
+                    recommendations: merged.map(() => true),
+                  }));
+                }
+                if (mode === 'activities' || mode === 'full') {
+                  const actLines = card.activities.map(
+                    (a) => `${a.name} (${a.duration}): ${a.steps.join(' ← ')}`
+                  );
+                  const mergedBenefits = Array.from(
+                    new Set([...activeData.homeSchoolBenefits, ...actLines])
+                  );
+                  handleUpdateActiveData({
+                    ...activeData,
+                    homeSchoolBenefits: mergedBenefits,
+                  });
+                  setSelections((prev) => ({
+                    ...prev,
+                    homeSchoolBenefits: mergedBenefits.map(() => true),
+                  }));
+                }
+                appendChangeLog('إدراج من المكتبة', `${card.title} (${mode})`);
+                showToast(`تم إدراج "${card.title}" في التقرير بنجاح ✓`, {
+                  label: 'عرض التقرير',
+                  onClick: () => handleSelectSidebarSection('dashboard', 'all'),
+                });
+              }}
+              onNotify={showToast}
             />
           ) : (
             <>
@@ -2037,6 +2912,12 @@ export default function App() {
                   previewAnchorRef.current?.scrollIntoView({ behavior: 'smooth' });
                 }}
                 onNotify={showToast}
+                autoFormatSettings={autoFormatSettings}
+                onUpdateAutoFormatSettings={handleUpdateAutoFormatSettings}
+                onOpenAutoFormat={(scope) => handleOpenAutoFormat(scope)}
+                onOpenSmartAdd={(kind, draft) => handleOpenSmartAdd(kind, draft)}
+                smartAddDrafts={smartAddDrafts}
+                onDeleteSmartAddDraft={handleDeleteSmartAddDraft}
               />
             </div>
           )}
@@ -2115,7 +2996,16 @@ export default function App() {
                     </div>
                   </button>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAutoFormat('report')}
+                      className={`min-h-[32px] px-3 bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+                      title="تنسيق آلي ذكي لإصلاح الإملاء والترقيم والخطوط والتواريخ والجداول"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>✨ تنسيق آلي ذكي</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => setZoomPreference((z) => (z === 'fit' ? 1 : 'fit'))}
@@ -2473,7 +3363,9 @@ export default function App() {
       </nav>
 
       {/* Off-screen hidden export mirrors */}
-      {activeSidebarSection !== 'cv' && (
+      {activeSidebarSection !== 'cv' &&
+        activeSidebarSection !== 'library' &&
+        activeSidebarSection !== 'certificates' && (
         <div aria-hidden="true" className="no-print fixed -left-[9999px] top-0 pointer-events-none">
           {viewFormat !== 'a4' && (
             <ReportDocument
@@ -2518,7 +3410,7 @@ export default function App() {
         extras={extras}
         contactSettings={contactSettings}
         onNavigateSectionTab={(section, tab) => handleSelectSidebarSection(section, tab)}
-        onOpenNewReport={() => setActiveModal('new-report')}
+        onOpenNewReport={() => handleOpenSmartAdd('report')}
         onOpenComplaintEditor={() => openEditorTab('complaint')}
         onSwitchToInfographic={() => {
           setViewFormat('infographic');
@@ -2563,6 +3455,9 @@ export default function App() {
         onExportExcel={handleExportExcel}
         onPrintPdf={() => setActiveModal('confirm-print')}
         onExportBilingualWord={handleExportBilingualWord}
+        onOpenAutoFormat={() =>
+          handleOpenAutoFormat(activeSidebarSection === 'cv' ? 'cv' : 'report')
+        }
       />
 
       {/* All Studio Modals */}
@@ -2613,6 +3508,39 @@ export default function App() {
         }}
         onImportBackup={handleImportBackup}
         onExecutePrint={handlePrintPdf}
+        onOpenAutoFormat={() => handleOpenAutoFormat('report')}
+      />
+
+      {/* Feature A: Smart Auto-Formatting Engine Modal */}
+      <SmartAutoFormatModal
+        open={autoFormatModalState.open}
+        onClose={() => setAutoFormatModalState((p) => ({ ...p, open: false }))}
+        scope={autoFormatModalState.scope}
+        analysis={autoFormatModalState.analysis}
+        buttonRadiusClass={buttonRadiusClass}
+        canUndoFormat={Boolean(lastFormatUndoSnapshot)}
+        onApplyAll={(payload, compact) =>
+          handleApplyAutoFormatPayload(payload, compact, 'تطبيق كافة الإصلاحات الآلية')
+        }
+        onApplySingleFix={(fixId, payload) =>
+          handleApplyAutoFormatPayload(payload, false, `إصلاح محدد: ${fixId}`)
+        }
+        onUndoFormat={handleUndoAutoFormat}
+      />
+
+      {/* Feature B: Unified Smart Add Modal */}
+      <UnifiedSmartAddModal
+        open={smartAddModalState.open}
+        kind={smartAddModalState.kind}
+        cvLanguage={cvSnapshotRef.current.language}
+        buttonRadiusClass={buttonRadiusClass}
+        initialDraft={smartAddModalState.draft}
+        onClose={() =>
+          setSmartAddModalState((p) => ({ ...p, open: false, draft: null }))
+        }
+        onConfirmSave={handleSaveFromUnifiedSmartAdd}
+        onSaveDraft={handleSaveSmartAddDraft}
+        onNotify={(msg) => showToast(msg)}
       />
 
       {/* Click-to-Edit Modal */}
@@ -2763,6 +3691,88 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* Feature D: 15-Section Verified Parent Report Wizard Modal */}
+      <ParentReportWizardModal
+        open={parentReportWizardOpen}
+        onClose={() => setParentReportWizardOpen(false)}
+        buttonRadiusClass={buttonRadiusClass}
+        libraryCards={libraryCards}
+        centerName={activeData.centerName || 'المركز الشامل لرعاية الطفل'}
+        specialistName={activeData.preparedBy || activeData.directorName || 'أ/ أسامة الصماد'}
+        specialistRole={activeData.professionalTitle || activeData.directorRole || 'مدير فني المركز'}
+        initialComplaint={parentReportInitialComplaint}
+        initialChildName={activeData.childName !== 'Adnan A HEMIDA' ? '' : ''}
+        initialGuardianName={
+          extras.caseProfile?.guardianName && extras.caseProfile.guardianName !== '[ ... ]'
+            ? extras.caseProfile.guardianName
+            : ''
+        }
+        initialPhone={
+          extras.caseProfile?.guardianPhone && extras.caseProfile.guardianPhone !== '[ ... ]'
+            ? extras.caseProfile.guardianPhone
+            : ''
+        }
+        onSaveAndStampReport={(doc: ParentReport15Document) => {
+          createAutomaticBackupSnapshot('نسخة احتياطية قبل حفظ تقرير ولي أمر 15 قسم');
+          const existingParentReps = loadSavedParentReports();
+          persistSavedParentReports([doc, ...existingParentReps.filter((d) => d.id !== doc.id)]);
+
+          const nextAr = {
+            ...activeData,
+            ...convertParentReport15ToReportData(doc, activeData),
+          };
+          const nextSel = createFullSelections(nextAr);
+          const nextRec: SavedReportRecord = {
+            id: `rep-parent-${doc.id}`,
+            name: `تقرير ولي أمر (15 قسم): ${doc.childName}`,
+            isDraft: false,
+            updatedAt: new Date().toISOString().slice(0, 10),
+            language: 'ar',
+            arData: nextAr,
+            enData: null,
+            visibility: DEFAULT_SECTION_VISIBILITY,
+            selections: nextSel,
+            extras: {
+              ...extras,
+              caseProfile: {
+                ...(extras.caseProfile || DEFAULT_CASE_PROFILE_META),
+                guardianName: doc.guardianName,
+                guardianPhone: doc.guardianPhone,
+                mainComplaint: doc.complaintText,
+              },
+            },
+          };
+          const nextSaved = [nextRec, ...savedReports];
+          setSavedReports(nextSaved);
+          persistSavedReports(nextSaved);
+          setActiveRecordId(nextRec.id);
+          setArData(nextAr);
+          setEnData(null);
+          setLanguage('ar');
+          setSelections(nextSel);
+          setShowStamp(true);
+          setLibraryBackups(loadAutoBackupsList());
+          appendChangeLog('تقرير ولي أمر موثق', `اعتماد وختم 15 قسم للحالة: ${doc.childName}`);
+          showToast(`تم حفظ وختم تقرير "${doc.childName}" في سجل التقارير ✓`);
+        }}
+        onPrintParentReport={(doc: ParentReport15Document) => {
+          const nextAr = {
+            ...activeData,
+            ...convertParentReport15ToReportData(doc, activeData),
+          };
+          setArData(nextAr);
+          setEnData(null);
+          setLanguage('ar');
+          setSelections(createFullSelections(nextAr));
+          setShowStamp(true);
+          setParentReportWizardOpen(false);
+          handleSelectSidebarSection('dashboard', 'all');
+          setTimeout(() => {
+            setActiveModal('confirm-print');
+          }, 180);
+        }}
+        onNotify={showToast}
+      />
     </div>
   );
 }

@@ -14,11 +14,13 @@ import {
   Plus,
   Redo2,
   RotateCcw,
+  Sparkles,
   Trash2,
   Type,
   Undo2,
   X,
 } from 'lucide-react';
+import { formatSingleTextBlock } from '../utils/smartAutoFormatter';
 import { ReportData } from '../types/report';
 import {
   BlockBorderStyle,
@@ -131,9 +133,11 @@ export const ClickToEditModal: React.FC<ClickToEditModalProps> = ({
   const [tableDraft, setTableDraft] = useState<CustomTableItem | null>(null);
   const [planGoalDraft, setPlanGoalDraft] = useState<PlanGoalItem | null>(null);
   const [evalDraft, setEvalDraft] = useState<EvaluationFormEntry | null>(null);
+  const [formatHint, setFormatHint] = useState<{ msg: string; warn?: string } | null>(null);
 
   useEffect(() => {
     if (!target) return;
+    setFormatHint(null);
     setTextDraft(target.textValue);
     setStyleDraft(currentStyle ? { ...currentStyle } : {});
     setConfirmDeleteOpen(false);
@@ -187,6 +191,75 @@ export const ClickToEditModal: React.FC<ClickToEditModalProps> = ({
   const handleStepFont = (delta: number) => {
     const next = Math.min(32, Math.max(9, currentFontPx + delta));
     setStyleDraft((prev) => ({ ...prev, fontSizePx: next }));
+  };
+
+  const handleAutoFormatBlock = () => {
+    if (!target) return;
+    let totalChanges = 0;
+    const warnings: string[] = [];
+
+    const fmt = (val: string) => {
+      const r = formatSingleTextBlock(val);
+      totalChanges += r.changesCount;
+      warnings.push(...r.warnings);
+      return r.formatted;
+    };
+
+    if (target.kind === 'personal-table') {
+      setPersonalDraft({
+        childName: fmt(personalDraft.childName),
+        birthDate: fmt(personalDraft.birthDate),
+        age: fmt(personalDraft.age),
+        diagnosis: fmt(personalDraft.diagnosis),
+      });
+    } else if (target.kind === 'chart' && chartDraft) {
+      setChartDraft({
+        ...chartDraft,
+        title: fmt(chartDraft.title),
+        unit: fmt(chartDraft.unit),
+        points: chartDraft.points.map((pt) => ({ ...pt, label: fmt(pt.label) })),
+      });
+    } else if (target.kind === 'table' && tableDraft) {
+      setTableDraft({
+        ...tableDraft,
+        title: fmt(tableDraft.title),
+        headers: tableDraft.headers.map(fmt),
+        rows: tableDraft.rows.map((r) => r.map(fmt)),
+      });
+    } else if (target.kind === 'plan-goal' && planGoalDraft) {
+      setPlanGoalDraft({
+        ...planGoalDraft,
+        goal: fmt(planGoalDraft.goal),
+        targetDuration: fmt(planGoalDraft.targetDuration),
+        owner: fmt(planGoalDraft.owner),
+        progress: fmt(planGoalDraft.progress),
+      });
+    } else if (target.kind === 'evaluation' && evalDraft) {
+      setEvalDraft({
+        ...evalDraft,
+        title: fmt(evalDraft.title),
+        fields: evalDraft.fields.map((f) => ({
+          label: fmt(f.label),
+          value: fmt(f.value),
+        })),
+      });
+    } else {
+      setTextDraft(fmt(textDraft));
+    }
+
+    setStyleDraft((prev) => ({
+      ...prev,
+      fontFamily: 'sans',
+      textColor: prev.textColor || '#0F172A',
+    }));
+
+    setFormatHint({
+      msg:
+        totalChanges > 0
+          ? `تم التنسيق الآلي لهذا الجزء (${totalChanges} تحسينات) — اضغط حفظ التعديل لتثبيتها ✓`
+          : 'تم فحص وتوحيد تنسيق هذا الجزء وهو متوافق تماماً ✓',
+      warn: warnings[0],
+    });
   };
 
   const handleSaveText = () => {
@@ -717,24 +790,48 @@ export const ClickToEditModal: React.FC<ClickToEditModalProps> = ({
                 </div>
               )}
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t" style={{ borderColor: theme.borderColor }}>
+              {formatHint && (
+                <div
+                  className={`p-2.5 border text-[11px] space-y-1 ${buttonRadiusClass}`}
+                  style={{
+                    backgroundColor: formatHint.warn ? '#FFFBEB' : '#ECFDF5',
+                    borderColor: formatHint.warn ? '#FCD34D' : '#A7F3D0',
+                    color: formatHint.warn ? '#92400E' : '#065F46',
+                  }}
+                >
+                  <div className="font-bold">{formatHint.msg}</div>
+                  {formatHint.warn && <div>⚠️ {formatHint.warn}</div>}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t" style={{ borderColor: theme.borderColor }}>
                 <button
                   type="button"
-                  onClick={onClose}
-                  className={`min-h-[40px] px-4 border font-semibold cursor-pointer ${buttonRadiusClass}`}
-                  style={{ borderColor: theme.borderColor }}
+                  onClick={handleAutoFormatBlock}
+                  className={`min-h-[40px] px-3.5 bg-[#F5F3FF] hover:bg-[#EDE9FE] border border-[#DDD6FE] text-[#5B21B6] font-bold inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
                 >
-                  إلغاء
+                  <Sparkles className="w-4 h-4" />
+                  <span>تنسيق آلي لهذا الجزء</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={handleSaveText}
-                  className={`min-h-[40px] px-5 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
-                  style={{ backgroundColor: theme.accentColor }}
-                >
-                  <Check className="w-4 h-4" />
-                  <span>حفظ التعديل</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className={`min-h-[40px] px-4 border font-semibold cursor-pointer ${buttonRadiusClass}`}
+                    style={{ borderColor: theme.borderColor }}
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveText}
+                    className={`min-h-[40px] px-5 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+                    style={{ backgroundColor: theme.accentColor }}
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>حفظ التعديل</span>
+                  </button>
+                </div>
               </div>
             </>
           )}

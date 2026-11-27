@@ -7,6 +7,8 @@ import {
 
 export type SidebarSectionId =
   | 'dashboard'
+  | 'library'
+  | 'certificates'
   | 'summary'
   | 'plan'
   | 'charts'
@@ -593,3 +595,44 @@ export function createBlankReportData(addressee = 'إلى من يهمه الأم
     signDate: new Date().toISOString().slice(0, 10).replace(/-/g, '/'),
   };
 }
+
+export interface AutoFormatSettings {
+  spellCheck: boolean;
+  unifyFonts: boolean;
+  unifyDates: boolean;
+  fixTables: boolean;
+  atsCvCheck: boolean;
+  backupBeforeFormat: boolean;
+  formatOnExport: boolean;
+}
+
+export const DEFAULT_AUTO_FORMAT_SETTINGS: AutoFormatSettings = {
+  spellCheck: true,
+  unifyFonts: true,
+  unifyDates: true,
+  fixTables: true,
+  atsCvCheck: true,
+  backupBeforeFormat: true,
+  formatOnExport: false,
+};
+
+export type SmartAddKind =
+  | 'report'
+  | 'cv'
+  | 'certificate'
+  | 'evaluation'
+  | 'case'
+  | 'task'
+  | 'experience'
+  | 'skill'
+  | 'education';
+
+export interface SmartAddDraftItem {
+  id: string;
+  kind: SmartAddKind;
+  title: string;
+  updatedAt: string;
+  rawText: string;
+  payload: Record<string, unknown>;
+}
+

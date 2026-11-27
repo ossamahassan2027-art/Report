@@ -8,6 +8,7 @@ import {
   LayoutTemplate,
   Palette,
   Printer,
+  Sparkles,
   Trash2,
   Upload,
   X,
@@ -74,6 +75,7 @@ interface StudioModalsProps {
   onInsertTable: (table: CustomTableItem) => void;
   onImportBackup: (payload: ReportBackupPayload) => void;
   onExecutePrint: () => void;
+  onOpenAutoFormat?: () => void;
 }
 
 export const StudioModals: React.FC<StudioModalsProps> = ({
@@ -98,6 +100,7 @@ export const StudioModals: React.FC<StudioModalsProps> = ({
   onInsertTable,
   onImportBackup,
   onExecutePrint,
+  onOpenAutoFormat,
 }) => {
   // New Report State
   const [newReportMode, setNewReportMode] = useState<'blank' | 'template'>('template');
@@ -1115,27 +1118,44 @@ export const StudioModals: React.FC<StudioModalsProps> = ({
                 <div><strong>ثيم الطباعة:</strong> {LIGHT_THEMES[themeSettings.printTheme].name} (خلفية بيضاء لتوفير الحبر)</div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t" style={{ borderColor: theme.borderColor }}>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className={`min-h-[40px] px-4 border font-semibold cursor-pointer ${buttonRadiusClass}`}
-                  style={{ borderColor: theme.borderColor }}
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    setTimeout(onExecutePrint, 120);
-                  }}
-                  className={`min-h-[40px] px-5 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
-                  style={{ backgroundColor: theme.accentColor }}
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>طباعة</span>
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t" style={{ borderColor: theme.borderColor }}>
+                {onOpenAutoFormat ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      setTimeout(onOpenAutoFormat, 80);
+                    }}
+                    className={`min-h-[40px] px-3.5 bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-bold inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>✨ تنسيق آلي ذكي</span>
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className={`min-h-[40px] px-4 border font-semibold cursor-pointer ${buttonRadiusClass}`}
+                    style={{ borderColor: theme.borderColor }}
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      setTimeout(onExecutePrint, 120);
+                    }}
+                    className={`min-h-[40px] px-5 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+                    style={{ backgroundColor: theme.accentColor }}
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>طباعة</span>
+                  </button>
+                </div>
               </div>
             </>
           )}

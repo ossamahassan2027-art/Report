@@ -686,6 +686,66 @@ Requirements:
     }
   });
 
+  app.post('/api/report/trusted-enrichment', async (req, res) => {
+    try {
+      const { complaintText = '', condition = 'كل الحالات', allowedOrgs = ['NIMH', 'DSM-5-TR', 'WHO', 'CDC', 'ASHA'] } =
+        req.body ?? {};
+      const cleanComplaint = String(complaintText || '').trim();
+      if (!cleanComplaint) {
+        return res.status(400).json({ error: 'Complaint text is required.' });
+      }
+      if (!process.env.GEMINI_API_KEY) {
+        return res.json({ citations: [], onlineUsed: false });
+      }
+      const ai = getAiClient();
+      const prompt = `
+Provide concise, factual Arabic clinical-educational evidence notes strictly from these authoritative bodies ONLY: ${(allowedOrgs as string[]).join(', ')}
+Topic / Behavioral Observation: ${cleanComplaint.slice(0, 600)}
+Focus Axis: ${String(condition)}
+
+STRICT RULES:
+1. Cite ONLY NIMH, DSM-5-TR, WHO, CDC, or ASHA official pages.
+2. STRICTLY ZERO MEDICATION OR PHARMACEUTICAL ADVICE: Do NOT mention any drug names, dosages, or prescriptions. Focus exclusively on educational, behavioral, sensory, speech, family, and school accommodations.
+3. Return JSON array of up to 3 items matching schema: [{ "org": "NIMH|DSM-5-TR|WHO|CDC|ASHA", "title": "...", "url": "https://...", "summaryAr": "..." }].
+`;
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+          systemInstruction:
+            'Only output evidence-based non-pharmacological educational & rehabilitation guidance strictly from NIMH, DSM-5-TR, WHO, CDC, or ASHA.',
+          responseMimeType: 'application/json',
+        },
+      });
+      const raw = (response.text ?? '[]').trim();
+      const parsed = JSON.parse(raw);
+      const medBlock =
+        /\b(ريتالين|كونسيرتا|ستراتيرا|أتوموكسيتين|ميثيلفينيديت|ريسبيريدون|دواء|أدوية|عقار|جرعة|ritalin|concerta|strattera|atomoxetine|methylphenidate|risperidone|medication|dosage|drug)\b/i;
+      const validOrgs = new Set(['NIMH', 'DSM-5-TR', 'WHO', 'CDC', 'ASHA']);
+      const list = (Array.isArray(parsed) ? parsed : [])
+        .filter((it: { org?: string; url?: string; summaryAr?: string; title?: string }) =>
+          it &&
+          validOrgs.has(String(it.org || '')) &&
+          typeof it.url === 'string' &&
+          it.url.startsWith('https://') &&
+          !medBlock.test(String(it.summaryAr || ''))
+        )
+        .slice(0, 3)
+        .map((it: { org: string; url: string; summaryAr: string; title: string }, idx: number) => ({
+          id: `online-cit-${Date.now()}-${idx}`,
+          org: it.org,
+          title: it.title || it.org,
+          url: it.url,
+          retrievedDate: new Date().toISOString().slice(0, 10),
+          summaryAr: it.summaryAr,
+        }));
+      return res.json({ citations: list, onlineUsed: list.length > 0 });
+    } catch {
+      return res.json({ citations: [], onlineUsed: false });
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

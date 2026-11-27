@@ -7,6 +7,7 @@ import {
   Languages,
   Layers,
   Printer,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { LayoutMode, ReportLanguage, ViewFormat } from '../types/report';
@@ -24,6 +25,7 @@ interface SmartExportModalProps {
   onExportExcel: () => void;
   onPrintPdf: () => void;
   onExportBilingualWord: () => Promise<void>;
+  onOpenAutoFormat?: () => void;
 }
 
 export const SmartExportModal: React.FC<SmartExportModalProps> = ({
@@ -38,6 +40,7 @@ export const SmartExportModal: React.FC<SmartExportModalProps> = ({
   onExportExcel,
   onPrintPdf,
   onExportBilingualWord,
+  onOpenAutoFormat,
 }) => {
   const [bundleWord, setBundleWord] = useState(true);
   const [bundleExcel, setBundleExcel] = useState(true);
@@ -95,14 +98,29 @@ export const SmartExportModal: React.FC<SmartExportModalProps> = ({
               اللغة الحالية للتصدير: {language === 'ar' ? 'العربية الرسمية' : 'English Translation'} · العناصر المختارة فقط
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#57534E] hover:text-[#1C1917] hover:bg-[#EFEAE0] rounded-lg cursor-pointer"
-            aria-label="إغلاق"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenAutoFormat && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  setTimeout(onOpenAutoFormat, 80);
+                }}
+                className="min-h-[38px] px-3 bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-bold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>✨ تنسيق آلي ذكي</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#57534E] hover:text-[#1C1917] hover:bg-[#EFEAE0] rounded-lg cursor-pointer"
+              aria-label="إغلاق"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Single Format Grid */}

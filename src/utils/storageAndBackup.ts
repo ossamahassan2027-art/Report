@@ -10,9 +10,11 @@ import {
 } from '../types/report';
 import {
   AddonsSettings,
+  AutoFormatSettings,
   ChangeLogEntry,
   ContactSettings,
   DEFAULT_ADDONS_SETTINGS,
+  DEFAULT_AUTO_FORMAT_SETTINGS,
   DEFAULT_CONTACT_SETTINGS,
   DEFAULT_REPORT_EXTRAS,
   DEFAULT_STUDIO_PREFS,
@@ -21,6 +23,7 @@ import {
   LightThemeId,
   ReportExtras,
   SavedReportRecord,
+  SmartAddDraftItem,
   StudioNavigationPrefs,
   ThemeSettings,
 } from '../types/studio';
@@ -34,6 +37,8 @@ const LS_NAV_PREFS_KEY = 'cc_center_nav_prefs_v1';
 const LS_SAVED_CVS_KEY = 'cc_center_saved_cvs_v1';
 const LS_CHANGELOG_KEY = 'cc_center_changelog_v1';
 const LS_ACCOUNT_KEY = 'cc_center_account_security_v1';
+const LS_AUTO_FORMAT_KEY = 'shamel_auto_format_settings_v1';
+const LS_SMART_ADD_DRAFTS_KEY = 'shamel_smart_add_drafts_v1';
 
 export interface AccountSecurityConfig {
   passcode: string;
@@ -395,3 +400,43 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
     return false;
   }
 }
+
+export function loadAutoFormatSettings(): AutoFormatSettings {
+  try {
+    const raw = localStorage.getItem(LS_AUTO_FORMAT_KEY);
+    if (!raw) return DEFAULT_AUTO_FORMAT_SETTINGS;
+    const parsed = JSON.parse(raw);
+    return {
+      spellCheck: typeof parsed.spellCheck === 'boolean' ? parsed.spellCheck : true,
+      unifyFonts: typeof parsed.unifyFonts === 'boolean' ? parsed.unifyFonts : true,
+      unifyDates: typeof parsed.unifyDates === 'boolean' ? parsed.unifyDates : true,
+      fixTables: typeof parsed.fixTables === 'boolean' ? parsed.fixTables : true,
+      atsCvCheck: typeof parsed.atsCvCheck === 'boolean' ? parsed.atsCvCheck : true,
+      backupBeforeFormat:
+        typeof parsed.backupBeforeFormat === 'boolean' ? parsed.backupBeforeFormat : true,
+      formatOnExport: typeof parsed.formatOnExport === 'boolean' ? parsed.formatOnExport : false,
+    };
+  } catch {
+    return DEFAULT_AUTO_FORMAT_SETTINGS;
+  }
+}
+
+export function saveAutoFormatSettings(settings: AutoFormatSettings): void {
+  localStorage.setItem(LS_AUTO_FORMAT_KEY, JSON.stringify(settings));
+}
+
+export function loadSmartAddDrafts(): SmartAddDraftItem[] {
+  try {
+    const raw = localStorage.getItem(LS_SMART_ADD_DRAFTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function persistSmartAddDrafts(drafts: SmartAddDraftItem[]): void {
+  localStorage.setItem(LS_SMART_ADD_DRAFTS_KEY, JSON.stringify(drafts.slice(0, 40)));
+}
+

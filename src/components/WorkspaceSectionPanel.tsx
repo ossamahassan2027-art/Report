@@ -35,10 +35,12 @@ import {
   ADDON_CATALOG,
   ADDON_CATEGORIES,
   AddonsSettings,
+  AutoFormatSettings,
   BEHAVIOR_TECHNIQUES,
   ButtonShapeOption,
   ContactSettings,
   DEFAULT_ADDONS_SETTINGS,
+  DEFAULT_AUTO_FORMAT_SETTINGS,
   DEFAULT_THEME_SETTINGS,
   DensityOption,
   EVALUATION_FORM_TEMPLATES,
@@ -53,9 +55,12 @@ import {
   ReportExtras,
   SavedReportRecord,
   SidebarSectionId,
+  SmartAddDraftItem,
+  SmartAddKind,
   ThemeSettings,
   WeeklyTaskItem,
 } from '../types/studio';
+import { SmartFormatScope } from '../utils/smartAutoFormatter';
 import { copyTextToClipboard } from '../utils/storageAndBackup';
 import { ActiveModalType } from './StudioModals';
 
@@ -101,6 +106,13 @@ interface WorkspaceSectionPanelProps {
   onRunShortcut: (mode: 'executive' | 'parent-brief' | 'school-memo') => Promise<void>;
   onJumpToPreview: () => void;
   onNotify: (msg: string) => void;
+
+  autoFormatSettings?: AutoFormatSettings;
+  onUpdateAutoFormatSettings?: (next: AutoFormatSettings, persist: boolean) => void;
+  onOpenAutoFormat?: (scope: SmartFormatScope) => void;
+  onOpenSmartAdd?: (kind: SmartAddKind, draft?: SmartAddDraftItem) => void;
+  smartAddDrafts?: SmartAddDraftItem[];
+  onDeleteSmartAddDraft?: (id: string) => void;
 }
 
 const SECTION_META: Record<
@@ -111,6 +123,11 @@ const SECTION_META: Record<
     title: 'إدارة التقارير والملفات',
     subtitle: 'فتح التقارير المحفوظة، المسودات، وجدول المهام الأسبوعي',
     defaultTab: 'all',
+  },
+  library: {
+    title: 'المكتبة الذكية والمساعد السريري',
+    subtitle: '81+ بطاقة تخصصية، مساعد الشكاوى الذكي، ومحرك تفريغ وتصحيح المرفقات',
+    defaultTab: 'cards',
   },
   summary: {
     title: 'ملخص التقرير التربوي',
@@ -157,6 +174,11 @@ const SECTION_META: Record<
     subtitle: 'تصميم عمود واحد قياسي وفحص التوافق الفوري وتصدير Word / PDF / نص',
     defaultTab: 'new-cv',
   },
+  certificates: {
+    title: 'الشهادات والإفادات الجماعية',
+    subtitle: '16 قالباً جاهزاً ومحرر لوحة حر وتوليد 40 شهادة دفعة واحدة من Excel',
+    defaultTab: 'main',
+  },
 };
 
 export const WorkspaceSectionPanel: React.FC<WorkspaceSectionPanelProps> = ({
@@ -196,6 +218,12 @@ export const WorkspaceSectionPanel: React.FC<WorkspaceSectionPanelProps> = ({
   onRunShortcut,
   onJumpToPreview,
   onNotify,
+  autoFormatSettings = DEFAULT_AUTO_FORMAT_SETTINGS,
+  onUpdateAutoFormatSettings,
+  onOpenAutoFormat,
+  onOpenSmartAdd,
+  smartAddDrafts = [],
+  onDeleteSmartAddDraft,
 }) => {
   const [cardCollapsed, setCardCollapsed] = useState<boolean>(false);
 
@@ -211,9 +239,14 @@ export const WorkspaceSectionPanel: React.FC<WorkspaceSectionPanelProps> = ({
   );
   const [evalSpecialty, setEvalSpecialty] =
     useState<EvaluationFormEntry['category']>('speech');
-  const [settingsTab, setSettingsTab] = useState<'center' | 'themes' | 'addons' | 'signature'>(
-    'center'
-  );
+  const [settingsTab, setSettingsTab] = useState<
+    'center' | 'themes' | 'addons' | 'signature' | 'format'
+  >('center');
+  const [formatDraft, setFormatDraft] = useState<AutoFormatSettings>(autoFormatSettings);
+
+  useEffect(() => {
+    setFormatDraft(autoFormatSettings);
+  }, [autoFormatSettings]);
 
   // Sync controlled tab override when jumping from Sidebar Search, Addons Modal, or Saved Prefs
   useEffect(() => {
@@ -268,11 +301,13 @@ export const WorkspaceSectionPanel: React.FC<WorkspaceSectionPanelProps> = ({
       setEvalViewTab(activeTabOverride as 'comprehensive' | 'specialty' | 'infographic');
     } else if (
       activeSection === 'settings' &&
-      (['center', 'themes', 'addons', 'signature'] as const).includes(
-        activeTabOverride as 'center' | 'themes' | 'addons' | 'signature'
+      (['center', 'themes', 'addons', 'signature', 'format'] as const).includes(
+        activeTabOverride as 'center' | 'themes' | 'addons' | 'signature' | 'format'
       )
     ) {
-      setSettingsTab(activeTabOverride as 'center' | 'themes' | 'addons' | 'signature');
+      setSettingsTab(
+        activeTabOverride as 'center' | 'themes' | 'addons' | 'signature' | 'format'
+      );
     }
   }, [activeSection, activeTabOverride]);
 
@@ -405,65 +440,121 @@ export const WorkspaceSectionPanel: React.FC<WorkspaceSectionPanelProps> = ({
   const meta = SECTION_META[activeSection];
 
   const renderCardHeaderAction = () => {
+    const targetScope: SmartFormatScope =
+      activeSection === 'dashboard' && dashTab === 'tasks'
+        ? 'tasks'
+        : activeSection === 'evaluations'
+          ? 'evaluations'
+          : activeSection === 'plan' || activeSection === 'recommendations'
+            ? 'plan-recs'
+            : 'report';
+
+    const autoFormatBtn = onOpenAutoFormat ? (
+      <button
+        type="button"
+        onClick={() => onOpenAutoFormat(targetScope)}
+        className={`min-h-[32px] px-3 text-xs font-bold bg-[#7C3AED] hover:bg-[#6D28D9] text-white inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+        title="تنسيق آلي ذكي لإصلاح الإملاء والترقيم والخطوط والتواريخ والجداول"
+      >
+        <Sparkles className="w-3.5 h-3.5" />
+        <span>✨ تنسيق آلي ذكي</span>
+      </button>
+    ) : null;
+
     if (activeSection === 'dashboard') {
       return (
-        <button
-          type="button"
-          onClick={() => onSaveDraft(`مسودة ${data.childName || '[ ... ]'}`)}
-          className={`min-h-[32px] px-3 text-xs font-bold border border-[#BFDBFE] bg-[#EFF6FF] text-[#1E3A8A] hover:bg-[#DBEAFE] inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
-        >
-          <Save className="w-3.5 h-3.5" />
-          <span>حفظ كمسودة</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {autoFormatBtn}
+          {onOpenSmartAdd && (
+            <button
+              type="button"
+              onClick={() => onOpenSmartAdd(dashTab === 'tasks' ? 'task' : 'report')}
+              className={`min-h-[32px] px-3 text-xs font-bold bg-[#059669] hover:bg-[#047857] text-white inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{dashTab === 'tasks' ? 'إضافة مهمة ذكية' : 'تقرير جديد'}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onSaveDraft(`مسودة ${data.childName || '[ ... ]'}`)}
+            className={`min-h-[32px] px-3 text-xs font-bold border border-[#BFDBFE] bg-[#EFF6FF] text-[#1E3A8A] hover:bg-[#DBEAFE] inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>حفظ كمسودة</span>
+          </button>
+        </div>
       );
     }
     if (activeSection === 'summary') {
       return (
-        <button
-          type="button"
-          disabled={aiBusy}
-          onClick={onRunAiSummary}
-          className={`min-h-[32px] px-3 text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${buttonRadiusClass}`}
-          style={{ backgroundColor: '#2563EB' }}
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>{aiBusy ? 'جاري التلخيص...' : 'توليد اختصار ذكي'}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {autoFormatBtn}
+          <button
+            type="button"
+            disabled={aiBusy}
+            onClick={onRunAiSummary}
+            className={`min-h-[32px] px-3 text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${buttonRadiusClass}`}
+            style={{ backgroundColor: '#2563EB' }}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>{aiBusy ? 'جاري التلخيص...' : 'توليد اختصار ذكي'}</span>
+          </button>
+        </div>
       );
     }
     if (activeSection === 'charts') {
       return (
-        <button
-          type="button"
-          onClick={() => onOpenAddVisual(chartsTab)}
-          className={`min-h-[32px] px-3 text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
-          style={{ backgroundColor: '#2563EB' }}
-        >
-          <BarChart3 className="w-3.5 h-3.5" />
-          <span>إضافة رسم / جدول</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {autoFormatBtn}
+          <button
+            type="button"
+            onClick={() => onOpenAddVisual(chartsTab)}
+            className={`min-h-[32px] px-3 text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+            style={{ backgroundColor: '#2563EB' }}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>إضافة رسم / جدول</span>
+          </button>
+        </div>
       );
     }
     if (activeSection === 'templates') {
       return (
-        <button
-          type="button"
-          onClick={() => onOpenModal('choose-template')}
-          className={`min-h-[32px] px-3 text-xs font-bold border border-[#BFDBFE] bg-[#EFF6FF] text-[#1E3A8A] hover:bg-[#DBEAFE] inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
-        >
-          <span>معرض القوالب</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {autoFormatBtn}
+          <button
+            type="button"
+            onClick={() => onOpenModal('choose-template')}
+            className={`min-h-[32px] px-3 text-xs font-bold border border-[#BFDBFE] bg-[#EFF6FF] text-[#1E3A8A] hover:bg-[#DBEAFE] inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+          >
+            <span>معرض القوالب</span>
+          </button>
+        </div>
       );
     }
     return (
-      <button
-        type="button"
-        onClick={onJumpToPreview}
-        className={`min-h-[32px] px-3 text-xs font-bold border border-[#BFDBFE] bg-[#EFF6FF] text-[#1E3A8A] hover:bg-[#DBEAFE] inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
-      >
-        <Eye className="w-3.5 h-3.5" />
-        <span>معاينة التقرير</span>
-      </button>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {autoFormatBtn}
+        {activeSection === 'evaluations' && onOpenSmartAdd && (
+          <button
+            type="button"
+            onClick={() => onOpenSmartAdd('evaluation')}
+            className={`min-h-[32px] px-3 text-xs font-bold bg-[#059669] hover:bg-[#047857] text-white inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>تقييم جديد</span>
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onJumpToPreview}
+          className={`min-h-[32px] px-3 text-xs font-bold border border-[#BFDBFE] bg-[#EFF6FF] text-[#1E3A8A] hover:bg-[#DBEAFE] inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+        >
+          <Eye className="w-3.5 h-3.5" />
+          <span>معاينة التقرير</span>
+        </button>
+      </div>
     );
   };
 
@@ -558,20 +649,32 @@ export const WorkspaceSectionPanel: React.FC<WorkspaceSectionPanelProps> = ({
                   <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0]">
                     <div>
                       <div className="font-bold text-sm text-[#0F172A]">
-                        إنشاء تقرير جديد أو نسخة مخصصة
+                        إنشاء تقرير جديد ذكي أو من قالب جاهز
                       </div>
                       <p className="mt-0.5 text-[#64748B]">
-                        اختر قالباً جاهزاً أو نموذجاً فارغاً [ ... ] وحدد الجهة الموجه إليها التقرير.
+                        أدخل نصاً أو أرفق ملفات Word / Excel / PDF / صورة أو صوت وسيتم الملء محلياً فوراً.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onOpenModal('new-report')}
-                      className={`min-h-[40px] px-4 text-white font-bold inline-flex items-center gap-2 cursor-pointer bg-[#059669] hover:bg-[#047857] ${buttonRadiusClass}`}
-                    >
-                      <FilePlus2 className="w-4 h-4" />
-                      <span>فتح معالج التقرير الجديد</span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {onOpenSmartAdd && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenSmartAdd('report')}
+                          className={`min-h-[40px] px-4 text-white font-bold inline-flex items-center gap-2 cursor-pointer bg-[#059669] hover:bg-[#047857] ${buttonRadiusClass}`}
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          <span>تقرير جديد (إضافة ذكية)</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onOpenModal('new-report')}
+                        className={`min-h-[40px] px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-bold inline-flex items-center gap-2 cursor-pointer hover:bg-[#EFF6FF] ${buttonRadiusClass}`}
+                      >
+                        <FilePlus2 className="w-4 h-4 text-[#2563EB]" />
+                        <span>قالب تقرير فارغ / جاهز</span>
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -648,6 +751,49 @@ export const WorkspaceSectionPanel: React.FC<WorkspaceSectionPanelProps> = ({
                       .length === 0 && (
                       <div className="p-5 text-center text-[#64748B]">
                         لا توجد تقارير في هذه القائمة حالياً.
+                      </div>
+                    )}
+
+                    {dashTab === 'drafts' && smartAddDrafts.length > 0 && (
+                      <div className="mt-3 p-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg space-y-2">
+                        <div className="font-bold text-[#92400E]">
+                          مسودات الإضافة الذكية الموحدة ({smartAddDrafts.length})
+                        </div>
+                        <div className="space-y-1.5">
+                          {smartAddDrafts.map((dr) => (
+                            <div
+                              key={dr.id}
+                              className="p-2 bg-white border border-[#E2E8F0] rounded-lg flex flex-wrap items-center justify-between gap-2"
+                            >
+                              <div>
+                                <div className="font-bold text-[#0F172A]">{dr.title}</div>
+                                <div className="text-[10.5px] text-[#64748B]">
+                                  النوع: {dr.kind} · آخر تحديث: {dr.updatedAt}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                {onOpenSmartAdd && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenSmartAdd(dr.kind, dr)}
+                                    className={`min-h-[30px] px-2.5 bg-[#EFF6FF] border border-[#BFDBFE] text-[#1E3A8A] font-bold cursor-pointer ${buttonRadiusClass}`}
+                                  >
+                                    فتح المسودة
+                                  </button>
+                                )}
+                                {onDeleteSmartAddDraft && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onDeleteSmartAddDraft(dr.id)}
+                                    className={`min-h-[30px] px-2.5 bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] font-bold cursor-pointer ${buttonRadiusClass}`}
+                                  >
+                                    حذف
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1837,7 +1983,7 @@ export const WorkspaceSectionPanel: React.FC<WorkspaceSectionPanelProps> = ({
             </div>
           )}
 
-          {/* 9. SETTINGS (4 Tabs: المركز | الثيمات | زر الإضافات | التوقيع والختم) */}
+          {/* 9. SETTINGS (5 Tabs: المركز | الثيمات | زر الإضافات | التوقيع والختم | إعدادات التنسيق الآلي) */}
           {activeSection === 'settings' && (
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-[#F8FAFC] border-b border-[#E2E8F0]">
@@ -1848,6 +1994,7 @@ export const WorkspaceSectionPanel: React.FC<WorkspaceSectionPanelProps> = ({
                       ['themes', 'الثيمات'],
                       ['addons', 'زر الإضافات'],
                       ['signature', 'التوقيع والختم'],
+                      ['format', 'إعدادات التنسيق الآلي'],
                     ] as const
                   ).map(([id, lbl]) => (
                     <button
@@ -2502,6 +2649,73 @@ export const WorkspaceSectionPanel: React.FC<WorkspaceSectionPanelProps> = ({
                           : 'إظهار الختم والتوقيع الرقمي'}
                       </span>
                     </button>
+                  </div>
+                )}
+
+                {settingsTab === 'format' && (
+                  <div className="space-y-4">
+                    <div className="p-3 rounded-lg bg-[#F5F3FF] border border-[#DDD6FE] text-[#4C1D95] text-xs">
+                      تحكم في قواعد التنسيق الآلي الذكي التي تُطبق عند الضغط على زر [ ✨ تنسيق آلي ذكي ] أو تلقائياً قبل التصدير والطباعة.
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {(
+                        [
+                          ['spellCheck', 'تصحيح إملائي تلقائي (الهمزات، التاء المربوطة، الحروف الإنجليزية)'],
+                          ['unifyFonts', 'توحيد الخطوط والأحجام (Cairo / Arial + عنوان 16، فرعي 14، نص 12)'],
+                          ['unifyDates', 'توحيد التواريخ والأرقام اللاتينية دون تغيير الأرقام الطبية'],
+                          ['fixTables', 'إصلاح الجداول والقوائم وإزالة الجداول الداخلية في الـ CV'],
+                          ['atsCvCheck', 'فحص ATS للـ CV وعرض النتيجة قبل وبعد + ضغط الصفحات'],
+                          ['backupBeforeFormat', 'حفظ نسخة احتياطية تلقائية في سجل التعديلات قبل التنسيق'],
+                          ['formatOnExport', 'تنسيق آلي تلقائي عند التصدير (Word / PDF / طباعة)'],
+                        ] as [keyof AutoFormatSettings, string][]
+                      ).map(([key, label]) => (
+                        <label
+                          key={key}
+                          className={`min-h-[44px] p-3 border flex items-center gap-2.5 cursor-pointer ${buttonRadiusClass}`}
+                          style={{
+                            backgroundColor: formatDraft[key] ? '#EFF6FF' : '#FFFFFF',
+                            borderColor: formatDraft[key] ? '#2563EB' : '#E2E8F0',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={Boolean(formatDraft[key])}
+                            onChange={(e) =>
+                              setFormatDraft((prev) => ({
+                                ...prev,
+                                [key]: e.target.checked,
+                              }))
+                            }
+                            className="w-4 h-4 accent-[#2563EB] shrink-0"
+                          />
+                          <span className="font-semibold text-[#0F172A]">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUpdateAutoFormatSettings?.(formatDraft, true);
+                          onNotify('تم حفظ إعدادات التنسيق الآلي بنجاح ✓');
+                        }}
+                        className={`min-h-[40px] px-5 bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-bold inline-flex items-center gap-2 cursor-pointer ${buttonRadiusClass}`}
+                      >
+                        <Save className="w-4 h-4" />
+                        <span>حفظ إعدادات التنسيق</span>
+                      </button>
+                      {onOpenAutoFormat && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenAutoFormat('report')}
+                          className={`min-h-[40px] px-4 border border-[#CBD5E1] bg-white hover:bg-[#F8FAFC] text-[#0F172A] font-bold inline-flex items-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+                        >
+                          <Sparkles className="w-4 h-4 text-[#7C3AED]" />
+                          <span>تشغيل التنسيق الآن</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

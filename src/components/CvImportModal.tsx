@@ -9,6 +9,8 @@ import {
   FileSpreadsheet,
   FileText,
   Loader2,
+  Mic,
+  MicOff,
   RotateCcw,
   Sparkles,
   Upload,
@@ -19,8 +21,11 @@ import {
   ExtractedCvResult,
   PreparedUploadedFile,
   prepareFileForExtraction,
-  requestExtractCvFromServer,
 } from '../utils/cvFileParser';
+import {
+  CvExtractionMethodId,
+  runCv4MethodExtraction,
+} from '../utils/cvSmartExtractor4Methods';
 
 interface CvImportModalProps {
   open: boolean;
@@ -37,6 +42,7 @@ interface ReviewRowItem {
   label: string;
   value: string;
   confirmed: boolean;
+  confidence: 'confirmed' | 'review' | 'missing';
   editing: boolean;
   kind: 'scalar' | 'experiences' | 'education' | 'skills' | 'certifications' | 'languages' | 'trainings';
 }
@@ -49,10 +55,37 @@ const ACCEPT_BY_FILTER: Record<CvImportPresetFilter, string> = {
   text: '.txt,.md,text/plain',
 };
 
+const EXTRACTION_METHOD_CARDS: {
+  id: CvExtractionMethodId;
+  title: string;
+  desc: string;
+}[] = [
+  {
+    id: 'method-1-pdfjs-text',
+    title: 'طريقة 1: استخراج نص مباشر (PDF.js / Word)',
+    desc: 'استخراج فوري للنصوص المدمجة في ملفات PDF وWord (.docx).',
+  },
+  {
+    id: 'method-2-pdf-300dpi-ocr',
+    title: 'طريقة 2: PDF → صور 300 DPI + OCR',
+    desc: 'للملفات المصورة الممسوحة ضوئياً (ara + eng) بدقة عالية.',
+  },
+  {
+    id: 'method-3-image-3settings',
+    title: 'طريقة 3: صورة بـ 3 إعدادات تباين',
+    desc: 'تجربة أبيض/أسود، تكبير حاد 2.8x، وقياسي واختيار الأوضح تلقائياً.',
+  },
+  {
+    id: 'method-4-manual-voice',
+    title: 'طريقة 4: إدخال يدوي + لصق + صوت',
+    desc: 'لصق مباشر أو إملاء صوتي بالمايكروفون بدون أي أخطاء.',
+  },
+];
+
 function sanitizeUserError(err: unknown): string {
   const raw = err instanceof Error ? err.message : '';
   if (!raw || raw.includes('{') || raw.includes('503') || raw.includes('UNAVAILABLE')) {
-    return 'تعذر قراءة الملف، برجاء تجربة ملف أوضح أو الصق النص يدوياً.';
+    return 'تعذر قراءة الملف تلقائياً — جرب الطريقة 2 (300 DPI) أو الطريقة 4 (اللصق اليدوي/الصوت).';
   }
   return raw;
 }
@@ -67,9 +100,13 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
   onApplyExtractedCv,
 }) => {
   const [selectedFilter, setSelectedFilter] = useState<CvImportPresetFilter>(presetFilter);
+  const [selectedMethod, setSelectedMethod] =
+    useState<CvExtractionMethodId>('method-1-pdfjs-text');
+  const [methodUsedLabel, setMethodUsedLabel] = useState<string>('');
   const [preparedFile, setPreparedFile] = useState<PreparedUploadedFile | null>(null);
   const [pastedText, setPastedText] = useState('');
   const [manualPasteVisible, setManualPasteVisible] = useState(false);
+  const [voiceActive, setVoiceActive] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progressPercent, setProgressPercent] = useState(0);
@@ -80,16 +117,26 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
   const [reviewRows, setReviewRows] = useState<ReviewRowItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const manualTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const speechRecRef = useRef<{ stop?: () => void } | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setSelectedFilter(presetFilter);
+    setSelectedMethod(
+      presetFilter === 'image'
+        ? 'method-3-image-3settings'
+        : presetFilter === 'text'
+        ? 'method-4-manual-voice'
+        : 'method-1-pdfjs-text'
+    );
+    setMethodUsedLabel('');
     setPreparedFile(null);
     setPastedText('');
     setManualPasteVisible(presetFilter === 'text');
+    setVoiceActive(false);
     setErrorMsg('');
     setProgressPercent(0);
-    setProgressStage('جاري قراءة الملف');
+    setProgressStage('جاري قراءة الملف محلياً');
     setExtractionResult(null);
     setReviewOpen(false);
     setReviewRows([]);
@@ -97,14 +144,73 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
+        speechRecRef.current?.stop?.();
         onClose();
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      speechRecRef.current?.stop?.();
+      window.removeEventListener('keydown', onKey);
+    };
   }, [open, presetFilter, onClose]);
 
   if (!open) return null;
+
+  const handleToggleVoiceDictation = () => {
+    if (voiceActive) {
+      speechRecRef.current?.stop?.();
+      setVoiceActive(false);
+      return;
+    }
+    const win = window as unknown as {
+      SpeechRecognition?: new () => {
+        lang: string;
+        continuous: boolean;
+        interimResults: boolean;
+        onresult: (ev: { results: ArrayLike<{ 0: { transcript: string } }> }) => void;
+        onerror: () => void;
+        onend: () => void;
+        start: () => void;
+        stop: () => void;
+      };
+      webkitSpeechRecognition?: new () => {
+        lang: string;
+        continuous: boolean;
+        interimResults: boolean;
+        onresult: (ev: { results: ArrayLike<{ 0: { transcript: string } }> }) => void;
+        onerror: () => void;
+        onend: () => void;
+        start: () => void;
+        stop: () => void;
+      };
+    };
+    const SpeechRec = win.SpeechRecognition || win.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      setManualPasteVisible(true);
+      setErrorMsg('المتصفح الحالي لا يدعم الإملاء الصوتي المباشر — استخدم خانة اللصق اليدوي.');
+      return;
+    }
+    const rec = new SpeechRec();
+    rec.lang = language === 'en' ? 'en-US' : 'ar-EG';
+    rec.continuous = true;
+    rec.interimResults = false;
+    rec.onresult = (event) => {
+      let transcript = '';
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += `${event.results[i][0].transcript} `;
+      }
+      setManualPasteVisible(true);
+      setPastedText((prev) => `${prev ? `${prev}\n` : ''}${transcript.trim()}`);
+    };
+    rec.onerror = () => setVoiceActive(false);
+    rec.onend = () => setVoiceActive(false);
+    speechRecRef.current = rec;
+    setSelectedMethod('method-4-manual-voice');
+    setManualPasteVisible(true);
+    setVoiceActive(true);
+    rec.start();
+  };
 
   const handleChooseFile = async (file: File) => {
     setErrorMsg('');
@@ -114,18 +220,84 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
     try {
       const prepared = await prepareFileForExtraction(file);
       setPreparedFile(prepared);
+      if (prepared.kind === 'image') {
+        setSelectedMethod('method-3-image-3settings');
+      } else if (prepared.kind === 'pdf') {
+        setSelectedMethod('method-1-pdfjs-text');
+      } else if (prepared.kind === 'text') {
+        setSelectedMethod('method-4-manual-voice');
+      }
     } catch (err) {
       setErrorMsg(sanitizeUserError(err));
     }
   };
 
+  const getConfidence = (val: string, listLen?: number): 'confirmed' | 'review' | 'missing' => {
+    if (typeof listLen === 'number') {
+      if (listLen === 0) return 'missing';
+      return val.includes('[ غير موجود ]') || val.includes('[ ... ]') ? 'review' : 'confirmed';
+    }
+    const clean = val.trim();
+    if (!clean || clean === '[ ... ]' || clean === '[ غير موجود ]') return 'missing';
+    if (clean.length < 4 || /\?{2,}|~/.test(clean)) return 'review';
+    return 'confirmed';
+  };
+
   const buildReviewRows = (cv: CvData): ReviewRowItem[] => [
-    { key: 'fullName', label: 'الاسم الكامل', value: cv.fullName, confirmed: !cv.fullName.includes('['), editing: false, kind: 'scalar' },
-    { key: 'targetJobTitle', label: 'المسمى الوظيفي', value: cv.targetJobTitle, confirmed: !cv.targetJobTitle.includes('['), editing: false, kind: 'scalar' },
-    { key: 'phone', label: 'الهاتف', value: cv.phone, confirmed: !cv.phone.includes('['), editing: false, kind: 'scalar' },
-    { key: 'email', label: 'البريد الإلكتروني', value: cv.email, confirmed: !cv.email.includes('['), editing: false, kind: 'scalar' },
-    { key: 'location', label: 'العنوان / الموقع', value: cv.location, confirmed: !cv.location.includes('['), editing: false, kind: 'scalar' },
-    { key: 'summary', label: 'الملخص المهني', value: cv.summary, confirmed: !cv.summary.includes('['), editing: false, kind: 'scalar' },
+    {
+      key: 'fullName',
+      label: 'الاسم الكامل',
+      value: cv.fullName,
+      confirmed: !cv.fullName.includes('['),
+      confidence: getConfidence(cv.fullName),
+      editing: false,
+      kind: 'scalar',
+    },
+    {
+      key: 'targetJobTitle',
+      label: 'المسمى الوظيفي',
+      value: cv.targetJobTitle,
+      confirmed: !cv.targetJobTitle.includes('['),
+      confidence: getConfidence(cv.targetJobTitle),
+      editing: false,
+      kind: 'scalar',
+    },
+    {
+      key: 'phone',
+      label: 'الهاتف',
+      value: cv.phone,
+      confirmed: !cv.phone.includes('['),
+      confidence: getConfidence(cv.phone),
+      editing: false,
+      kind: 'scalar',
+    },
+    {
+      key: 'email',
+      label: 'البريد الإلكتروني',
+      value: cv.email,
+      confirmed: !cv.email.includes('['),
+      confidence: getConfidence(cv.email),
+      editing: false,
+      kind: 'scalar',
+    },
+    {
+      key: 'location',
+      label: 'العنوان / الموقع',
+      value: cv.location,
+      confirmed: !cv.location.includes('['),
+      confidence: getConfidence(cv.location),
+      editing: false,
+      kind: 'scalar',
+    },
+    {
+      key: 'summary',
+      label: 'الملخص المهني',
+      value: cv.summary,
+      confirmed: !cv.summary.includes('['),
+      confidence: getConfidence(cv.summary),
+      editing: false,
+      kind: 'scalar',
+    },
     {
       key: 'experiences',
       label: `الخبرات العملية (${cv.experiences.length})`,
@@ -134,8 +306,9 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
           ? cv.experiences
               .map((e) => `${e.jobTitle} | ${e.company} | ${e.dateRange} :: ${e.bullets.join('؛ ')}`)
               .join('\n')
-          : '[ ... ]',
+          : '[ غير موجود ]',
       confirmed: cv.experiences.length > 0,
+      confidence: getConfidence(cv.experiences[0]?.jobTitle || '', cv.experiences.length),
       editing: false,
       kind: 'experiences',
     },
@@ -145,8 +318,9 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
       value:
         cv.education.length > 0
           ? cv.education.map((e) => `${e.degree} — ${e.institution} (${e.dateRange})`).join('\n')
-          : '[ ... ]',
+          : '[ غير موجود ]',
       confirmed: cv.education.length > 0,
+      confidence: getConfidence(cv.education[0]?.degree || '', cv.education.length),
       editing: false,
       kind: 'education',
     },
@@ -156,8 +330,9 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
       value:
         cv.skills.length > 0
           ? cv.skills.map((s) => (s.level ? `${s.name} - ${s.level}` : s.name)).join('، ')
-          : '[ ... ]',
+          : '[ غير موجود ]',
       confirmed: cv.skills.length > 0,
+      confidence: getConfidence(cv.skills[0]?.name || '', cv.skills.length),
       editing: false,
       kind: 'skills',
     },
@@ -167,8 +342,9 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
       value:
         cv.certifications.length > 0
           ? cv.certifications.map((c) => `${c.name} — ${c.issuer} (${c.date})`).join('\n')
-          : '[ ... ]',
+          : '[ غير موجود ]',
       confirmed: cv.certifications.length > 0,
+      confidence: getConfidence(cv.certifications[0]?.name || '', cv.certifications.length),
       editing: false,
       kind: 'certifications',
     },
@@ -177,9 +353,12 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
       label: `اللغات (${cv.languages.length})`,
       value:
         cv.languages.length > 0
-          ? cv.languages.map((l) => (l.proficiency && !l.proficiency.includes('[') ? `${l.name} - ${l.proficiency}` : l.name)).join('، ')
-          : '[ ... ]',
+          ? cv.languages
+              .map((l) => (l.proficiency && !l.proficiency.includes('[') ? `${l.name} - ${l.proficiency}` : l.name))
+              .join('، ')
+          : '[ غير موجود ]',
       confirmed: cv.languages.length > 0,
+      confidence: getConfidence(cv.languages[0]?.name || '', cv.languages.length),
       editing: false,
       kind: 'languages',
     },
@@ -189,21 +368,17 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
     setErrorMsg('');
     const useManualText = pastedText.trim().length > 0;
     if (!preparedFile && !useManualText) {
-      setErrorMsg('يرجى اختيار ملف أو لصق نص السيرة الذاتية أولاً.');
+      setErrorMsg('يرجى اختيار ملف أو لصق / إملاء نص السيرة الذاتية أولاً.');
       return;
     }
 
     setBusy(true);
     setProgressPercent(5);
-    setProgressStage(
-      preparedFile?.kind === 'image' && !useManualText
-        ? 'جاري قراءة الصورة'
-        : 'جاري قراءة الملف محلياً'
-    );
+    setProgressStage('تشغيل الاستخراج المحلي 100% (بدون سيرفر خارجي)');
 
     try {
-      const targetPayload: PreparedUploadedFile =
-        useManualText || !preparedFile
+      const targetPayload: PreparedUploadedFile | null =
+        useManualText && !preparedFile
           ? {
               id: `txt-${Date.now()}`,
               fileName: 'نص-السيرة-الذاتية.txt',
@@ -216,16 +391,19 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
             }
           : preparedFile;
 
-      const res = await requestExtractCvFromServer(
-        targetPayload,
+      const res = await runCv4MethodExtraction({
+        method: useManualText && !preparedFile ? 'method-4-manual-voice' : selectedMethod,
+        preparedFile: targetPayload,
+        manualText: pastedText,
         language,
         currentCv,
-        (pct, stage) => {
+        onProgress: (pct, stage) => {
           setProgressPercent(pct);
           setProgressStage(stage);
-        }
-      );
+        },
+      });
 
+      setMethodUsedLabel(res.methodUsedLabel);
       setExtractionResult(res);
       setReviewRows(buildReviewRows(res.cvData));
       setReviewOpen(true);
@@ -405,7 +583,38 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
 
         {/* Body */}
         <div className="p-5 overflow-y-auto space-y-4 text-xs flex-1">
-          {/* Format Filter Chips */}
+          {/* 4 Selectable Local Extraction Methods */}
+          <div className="space-y-1.5">
+            <div className="font-bold text-[#1E3A8A]">اختر طريقة الاستخراج المحلية (بدون أي سيرفر خارجي):</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {EXTRACTION_METHOD_CARDS.map((m) => {
+                const active = selectedMethod === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedMethod(m.id);
+                      if (m.id === 'method-4-manual-voice') {
+                        setManualPasteVisible(true);
+                        setTimeout(() => manualTextareaRef.current?.focus(), 60);
+                      }
+                    }}
+                    className={`p-2.5 border text-right cursor-pointer transition-colors ${buttonRadiusClass}`}
+                    style={{
+                      backgroundColor: active ? '#EFF6FF' : '#F8FAFC',
+                      borderColor: active ? '#2563EB' : '#CBD5E1',
+                    }}
+                  >
+                    <div className="font-bold text-[#0F172A] text-[11.5px]">{m.title}</div>
+                    <div className="text-[10.5px] text-[#64748B] mt-0.5">{m.desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Format Filter Chips + Voice Dictation + Manual Paste */}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="font-bold text-[#334155] ml-1">نوع الملف:</span>
@@ -432,16 +641,31 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
               })}
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setManualPasteVisible(true);
-                setTimeout(() => manualTextareaRef.current?.focus(), 60);
-              }}
-              className={`min-h-[32px] px-3 border border-[#CBD5E1] bg-white hover:bg-[#EFF6FF] text-[#1E3A8A] font-bold cursor-pointer ${buttonRadiusClass}`}
-            >
-              الصق النص يدوياً
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleToggleVoiceDictation}
+                className={`min-h-[32px] px-3 border font-bold inline-flex items-center gap-1 cursor-pointer ${buttonRadiusClass}`}
+                style={{
+                  backgroundColor: voiceActive ? '#DC2626' : '#F5F3FF',
+                  borderColor: voiceActive ? '#DC2626' : '#DDD6FE',
+                  color: voiceActive ? '#FFFFFF' : '#5B21B6',
+                }}
+              >
+                {voiceActive ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                <span>{voiceActive ? 'إيقاف المايك' : 'إملاء بالصوت'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setManualPasteVisible(true);
+                  setTimeout(() => manualTextareaRef.current?.focus(), 60);
+                }}
+                className={`min-h-[32px] px-3 border border-[#CBD5E1] bg-white hover:bg-[#EFF6FF] text-[#1E3A8A] font-bold cursor-pointer ${buttonRadiusClass}`}
+              >
+                الصق النص يدوياً
+              </button>
+            </div>
           </div>
 
           <input
@@ -491,7 +715,7 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
           {(manualPasteVisible || selectedFilter === 'text' || !preparedFile) && (
             <div className="space-y-1.5">
               <label className="block font-bold text-[#334155]">
-                لصق نص الـ CV يدوياً (يعمل فوراً بدون انتظار):
+                لصق أو إملاء نص الـ CV يدوياً (يعمل فوراً بدون انتظار):
               </label>
               <textarea
                 ref={manualTextareaRef}
@@ -594,7 +818,7 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    <span>استخراج البيانات الآن</span>
+                    <span>استخراج البيانات الآن (محلي 100%)</span>
                   </>
                 )}
               </button>
@@ -619,6 +843,7 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
                   type="button"
                   onClick={() => {
                     setManualPasteVisible(true);
+                    setSelectedMethod('method-4-manual-voice');
                     setErrorMsg('');
                     setTimeout(() => manualTextareaRef.current?.focus(), 60);
                   }}
@@ -635,11 +860,18 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
           {extractionResult && (
             <div className="space-y-3 pt-2 border-t border-[#E2E8F0]">
               <div className="p-3 rounded-lg bg-[#ECFDF5] border border-[#A7F3D0] text-[#065F46] flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 font-bold">
-                  <CheckCircle2 className="w-4 h-4 text-[#059669] shrink-0" />
-                  <span>
-                    تم استخراج [{extractionResult.extractedFieldCount}] حقل بنجاح (استخراج محلي).
-                  </span>
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2 font-bold">
+                    <CheckCircle2 className="w-4 h-4 text-[#059669] shrink-0" />
+                    <span>
+                      تم استخراج [{extractionResult.extractedFieldCount}] حقل بنجاح مع تصحيح النصوص العربية.
+                    </span>
+                  </div>
+                  {methodUsedLabel && (
+                    <div className="text-[10.5px] text-[#047857] font-semibold">
+                      {methodUsedLabel}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
@@ -665,12 +897,14 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
                 <div className="p-3 rounded-lg bg-[#FFFBEB] border border-[#FDE68A] text-[#92400E] flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[#D97706]" />
                   <span>
-                    بعض الحقول غير واضحة في الملف [{extractionResult.missingFields.join('، ')}] — تم وضع [ ... ] دون اختراع بيانات، ويمكنك تعديلها هنا مباشرة أو داخل الاستمارة.
+                    حقول غير متوفرة بالملف [{extractionResult.missingFields.join('، ')}] — تم تمييزها بالأصفر بـ{' '}
+                    <span className="bg-[#FEF08A] text-[#854D0E] px-1 rounded font-bold">[ غير موجود ]</span>{' '}
+                    لتعديلها فوراً.
                   </span>
                 </div>
               )}
 
-              {/* Review Table */}
+              {/* Review Table with ✅/⚠️/❌ Confidence Badges */}
               {reviewOpen && (
                 <div className="overflow-x-auto rounded-lg border border-[#E2E8F0]">
                   <table className="w-full text-right border-collapse">
@@ -678,19 +912,26 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
                       <tr className="bg-[#EFF6FF] text-[#1E3A8A] border-b border-[#BFDBFE]">
                         <th className="py-2 px-3 font-bold w-36">الحقل</th>
                         <th className="py-2 px-3 font-bold">القيمة المستخرجة</th>
-                        <th className="py-2 px-3 font-bold w-32">الحالة</th>
+                        <th className="py-2 px-3 font-bold w-32">الثقة</th>
                         <th className="py-2 px-3 font-bold w-24 text-left">تعديل</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#E2E8F0]">
                       {reviewRows.map((row, idx) => {
-                        const isFilled =
-                          Boolean(row.value.trim()) && row.value.trim() !== '[ ... ]';
+                        const isMissing =
+                          row.confidence === 'missing' ||
+                          !row.value.trim() ||
+                          row.value.trim() === '[ غير موجود ]' ||
+                          row.value.trim() === '[ ... ]';
                         return (
                           <tr
                             key={row.key}
                             className={`align-top ${
-                              idx % 2 === 1 ? 'bg-[#F8FAFC]/70' : 'bg-white'
+                              isMissing
+                                ? 'bg-[#FEFCE8]'
+                                : idx % 2 === 1
+                                ? 'bg-[#F8FAFC]/70'
+                                : 'bg-white'
                             }`}
                           >
                             <td className="py-2 px-3 font-bold text-[#0F172A]">{row.label}</td>
@@ -710,18 +951,28 @@ export const CvImportModal: React.FC<CvImportModalProps> = ({
                                 />
                               ) : (
                                 <div className="whitespace-pre-wrap text-[11.5px] leading-relaxed">
-                                  {row.value}
+                                  {isMissing ? (
+                                    <span className="bg-[#FEF08A] text-[#854D0E] px-1.5 py-0.5 rounded font-bold">
+                                      [ غير موجود ]
+                                    </span>
+                                  ) : (
+                                    row.value
+                                  )}
                                 </div>
                               )}
                             </td>
                             <td className="py-2 px-3">
-                              {isFilled ? (
+                              {row.confidence === 'confirmed' && !isMissing ? (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded bg-[#ECFDF5] text-[#047857] font-bold text-[10.5px]">
-                                  تم الملء تلقائياً ✓
+                                  ✅ مؤكد
+                                </span>
+                              ) : row.confidence === 'review' ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded bg-[#FFFBEB] text-[#B45309] font-bold text-[10.5px]">
+                                  ⚠️ للمراجعة
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded bg-[#FFFBEB] text-[#B45309] font-semibold text-[10.5px]">
-                                  يحتاج إدخال يدوي
+                                <span className="inline-flex items-center px-2 py-0.5 rounded bg-[#FEF08A] text-[#854D0E] font-bold text-[10.5px]">
+                                  ❌ غير موجود
                                 </span>
                               )}
                             </td>

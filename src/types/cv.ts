@@ -6,6 +6,176 @@ export type CvTemplateId =
   | 'ats-academic'
   | 'ats-skills-forward';
 
+// Extended 8 visual templates requested for CV Studio (strictly keeping ATS-compliant headings)
+export type CvVisualTemplateId =
+  | 'classic'
+  | 'modern'
+  | 'creative'
+  | 'medical'
+  | 'academic'
+  | 'ats'
+  | 'infographic'
+  | 'luxury-arabic';
+
+export type CvFontId =
+  | 'cairo'
+  | 'tajawal'
+  | 'almarai'
+  | 'amiri'
+  | 'ibm-plex'
+  | 'arial'
+  | 'calibri'
+  | 'times'
+  | 'arabic-classic'
+  | 'modern-clean';
+
+export type CvDisplayMode = 'ar' | 'en' | 'bilingual';
+
+export type CvCustomFieldType = 'text' | 'date' | 'link' | 'list' | 'image' | 'file';
+
+export interface CvCustomField {
+  id: string;
+  type: CvCustomFieldType;
+  label: string;
+  value: string;
+  fileName?: string;
+}
+
+export interface CvCustomSection {
+  id: string;
+  title: string;
+  items: string[];
+  hidden?: boolean;
+}
+
+export interface CvDesignConfig {
+  visualTemplate: CvVisualTemplateId;
+  accentColor: string;
+  columns: 1 | 2;
+  photoPosition: 'right' | 'left' | 'top' | 'none';
+  fontId: CvFontId;
+  displayMode: CvDisplayMode;
+  fontSizeScale?: 'compact' | 'standard' | 'large';
+}
+
+export const CV_FONT_OPTIONS: { id: CvFontId; label: string; cssFamily: string }[] = [
+  { id: 'cairo', label: 'Cairo (كايرو)', cssFamily: "'Cairo', Arial, sans-serif" },
+  { id: 'tajawal', label: 'Tajawal (تجوال)', cssFamily: "'Tajawal', Arial, sans-serif" },
+  { id: 'almarai', label: 'Almarai (المراعي)', cssFamily: "'Almarai', Arial, sans-serif" },
+  { id: 'amiri', label: 'Amiri (أميري)', cssFamily: "'Amiri', Georgia, serif" },
+  {
+    id: 'ibm-plex',
+    label: 'IBM Plex Arabic',
+    cssFamily: "'IBM Plex Sans Arabic', Arial, sans-serif",
+  },
+  { id: 'arial', label: 'Arial', cssFamily: 'Arial, Helvetica, sans-serif' },
+  { id: 'calibri', label: 'Calibri', cssFamily: "Calibri, 'Segoe UI', Arial, sans-serif" },
+  { id: 'times', label: 'Times New Roman', cssFamily: "'Times New Roman', Georgia, serif" },
+  {
+    id: 'arabic-classic',
+    label: 'عربي كلاسيك (تراثي)',
+    cssFamily: "'Amiri', 'Traditional Arabic', serif",
+  },
+  {
+    id: 'modern-clean',
+    label: 'عصري احترافي',
+    cssFamily: "'Cairo', 'Tajawal', 'IBM Plex Sans Arabic', sans-serif",
+  },
+];
+
+export const CV_VISUAL_TEMPLATES: {
+  id: CvVisualTemplateId;
+  nameAr: string;
+  badge: string;
+  descriptionAr: string;
+  defaultColor: string;
+  defaultColumns: 1 | 2;
+  mappedAtsId: CvTemplateId;
+}[] = [
+  {
+    id: 'classic',
+    nameAr: 'كلاسيك رسمي',
+    badge: 'كلاسيك',
+    descriptionAr: 'تنسيق متوازن كلاسيكي مناسب للجهات الحكومية والإدارية.',
+    defaultColor: '#1E3A8A',
+    defaultColumns: 1,
+    mappedAtsId: 'ats-classic',
+  },
+  {
+    id: 'modern',
+    nameAr: 'عصري حديث',
+    badge: 'عصري',
+    descriptionAr: 'شريط رأسي نظيف وفواصل أفقية عصرية تبرز الإنجازات.',
+    defaultColor: '#2563EB',
+    defaultColumns: 2,
+    mappedAtsId: 'ats-executive',
+  },
+  {
+    id: 'creative',
+    nameAr: 'إبداعي مميز',
+    badge: 'إبداعي',
+    descriptionAr: 'توزيع بصري أنيق للمدربين والمحاضرين ومطوري البرامج.',
+    defaultColor: '#7C3AED',
+    defaultColumns: 2,
+    mappedAtsId: 'ats-skills-forward',
+  },
+  {
+    id: 'medical',
+    nameAr: 'طبي وتأهيلي',
+    badge: 'طبي',
+    descriptionAr: 'مصمم لأخصائيي العلاج الوظيفي والتأهيل الحركي وتحليل السلوك.',
+    defaultColor: '#0F766E',
+    defaultColumns: 1,
+    mappedAtsId: 'ats-academic',
+  },
+  {
+    id: 'academic',
+    nameAr: 'أكاديمي وبحثي',
+    badge: 'أكاديمي',
+    descriptionAr: 'يركز على المؤهلات والخبرات الإشرافية والمحاضرات العلمية.',
+    defaultColor: '#1E293B',
+    defaultColumns: 1,
+    mappedAtsId: 'ats-academic',
+  },
+  {
+    id: 'ats',
+    nameAr: 'ATS قياسي 100%',
+    badge: 'ATS 100%',
+    descriptionAr: 'عمود واحد قياسي بدون جداول معقدة لمرور أنظمة الفرز الآلي بنسبة 100%.',
+    defaultColor: '#111827',
+    defaultColumns: 1,
+    mappedAtsId: 'ats-classic',
+  },
+  {
+    id: 'infographic',
+    nameAr: 'انفوجرافيك ذكي',
+    badge: 'انفوجرافيك',
+    descriptionAr: 'عمودان ببطاقة تواصل جانبية ومؤشرات واضحة للخبرات والمهارات.',
+    defaultColor: '#0284C7',
+    defaultColumns: 2,
+    mappedAtsId: 'ats-skills-forward',
+  },
+  {
+    id: 'luxury-arabic',
+    nameAr: 'عربي فاخر',
+    badge: 'فاخر',
+    descriptionAr: 'خطوط أميري وكايرو مع إطار علوي أنيق باللون الكحلي والذهبي.',
+    defaultColor: '#0A1633',
+    defaultColumns: 1,
+    mappedAtsId: 'ats-executive',
+  },
+];
+
+export const DEFAULT_CV_DESIGN_CONFIG: CvDesignConfig = {
+  visualTemplate: 'ats',
+  accentColor: '#1E3A8A',
+  columns: 1,
+  photoPosition: 'none',
+  fontId: 'cairo',
+  displayMode: 'ar',
+  fontSizeScale: 'standard',
+};
+
 export interface CvExperienceItem {
   id: string;
   jobTitle: string;
@@ -69,6 +239,13 @@ export interface CvData {
   experienceLevel?: string;
   personalPhotoDataUrl?: string;
   showPhotoInCv?: boolean;
+  yearsOfExperience?: string;
+  atsKeywords?: string[];
+  customFields?: CvCustomField[];
+  customSections?: CvCustomSection[];
+  sectionOrder?: string[];
+  hiddenSections?: string[];
+  designConfig?: CvDesignConfig;
 }
 
 export type CvImportPresetFilter = 'all' | 'word' | 'pdf' | 'image' | 'text';
@@ -92,21 +269,21 @@ export interface ExtractedJobAdSummary {
 export const DEFAULT_TARGET_ENTITIES: string[] = [
   'مدارس دولية ولغات',
   'مراكز الرعاية والتربية الخاصة',
-  'وزارة التربية والتعليم / مؤسسات حكومية',
-  'شركات تقنية المعلومات والبرمجيات',
-  'مستشفيات ومراكز طبية متخصصة',
+  'مؤسسة زايد العليا لأصحاب الهمم / مؤسسات دولية',
+  'وزارة الشباب والرياضة / وزارة التربية والتعليم',
+  'مستشفيات ومراكز تأهيل متخصصة',
   'شركات كبرى ومؤسسات خاصة',
 ];
 
 export const DEFAULT_CAREER_SECTORS: string[] = [
+  'العلاج الوظيفي والتأهيل الحركي',
+  'تحليل السلوك التطبيقي (ABAT / ABA)',
+  'إدارة مراكز التأهيل والإشراف الفني',
   'التربية الخاصة وتعديل السلوك',
   'التعليم والتدريس والمناهج',
-  'الإدارة والموارد البشرية',
-  'تقنية المعلومات والبيانات',
   'القطاع الطبي والصحي',
-  'المالية والمحاسبة',
-  'التسويق والمبيعات وخدمة العملاء',
-  'الهندسة وإدارة المشاريع',
+  'الإدارة والموارد البشرية',
+  'التدريب وإعداد الكوادر',
 ];
 
 export const DEFAULT_EXPERIENCE_LEVELS: Record<CvLanguage, string[]> = {
@@ -114,13 +291,13 @@ export const DEFAULT_EXPERIENCE_LEVELS: Record<CvLanguage, string[]> = {
     'حديث التخرج (0 - 2 سنة)',
     'مستوى متوسط (2 - 5 سنوات)',
     'أخصائي أول / خبير (5 - 10 سنوات)',
-    'قيادي / إداري (+10 سنوات)',
+    'قيادي / استشاري (+20 عام خبرة)',
   ],
   en: [
     'Entry Level (0 - 2 years)',
     'Mid Level (2 - 5 years)',
     'Senior / Specialist (5 - 10 years)',
-    'Leadership / Management (10+ years)',
+    'Executive / Consultant (20+ years)',
   ],
 };
 
@@ -179,64 +356,131 @@ export interface CvTemplateDefinition {
   enPreset: CvData;
 }
 
+export const DEFAULT_OSAMA_ATS_KEYWORDS: string[] = [
+  'علاج وظيفي',
+  'تأهيل حركي',
+  'ABAT',
+  'تأهيل أطفال',
+  'ذوي الهمم',
+  'إدارة مراكز تأهيل',
+  'إشراف فني',
+  'تشخيص وتقييم',
+  'خطط فردية',
+  'تكامل حسي',
+  'تعديل سلوك',
+  'إرشاد أسري',
+  'تدريب كوادر',
+];
+
 export const DEFAULT_AR_CV_DATA: CvData = {
-  fullName: 'أسامة الصماد',
-  targetJobTitle: 'أخصائي تربية خاصة ومدير فني',
-  phone: '01069579757',
-  email: 'info@alshamel-center.example',
-  location: 'دمنهور، البحيرة، مصر',
-  websiteOrLink: '[ ... ]',
+  fullName: 'أسامة الصماد / Osama elsamad',
+  targetJobTitle:
+    'مدير ومشرف فني - أخصائي علاج وظيفي وتأهيل حركي - محلل سلوكي تطبيقي ABAT',
+  phone: '00201069579757',
+  email: 'osamaelsamad23@gmail.com',
+  location: 'مصر - البحيرة - دمنهور - شارع حسين حجازي بجوار مدرسة عمر الوكيل',
+  websiteOrLink: 'خبرة: أكثر من 20 عام',
+  yearsOfExperience: 'أكثر من 20 عام',
   summary:
-    'أخصائي تربية خاصة ومدير فني بخبرة عملية في التقييم التربوي والسلوكي للأطفال ذوي اضطراب فرط الحركة وتشتت الانتباه (ADHD)، وإعداد الخطط التربوية الفردية (IEP)، وتنسيق برامج تعديل السلوك والدعم الأسري والتقارير المدرسية وفق معايير الجودة التربوية وأنظمة تتبع المتقدمين (ATS).',
+    'مدير ومشرف فني واستشاري مراكز تأهيل بخبرة عملية تمتد لأكثر من 20 عاماً في العلاج الوظيفي والتأهيل الحركي وتحليل السلوك التطبيقي (ABAT)، وتأهيل أطفال ذوي الهمم، وإعداد خطط فردية وتقييمات تشخيصية شاملة، وتكامل حسي وتعديل سلوك وإرشاد أسري، وتدريب وتأهيل الكوادر وفق أحدث المعايير المؤسسية وأنظمة تتبع المتقدمين (ATS).',
   experiences: [
     {
       id: 'exp-1',
-      jobTitle: 'أخصائي تربية خاصة ومدير فني',
-      company: 'المركز الشامل لرعاية الطفل',
-      location: 'دمنهور',
-      dateRange: '01/2020 - حتى الآن',
+      jobTitle: 'استشاري ومدير فني وإداري لمراكز التأهيل',
+      company: 'مؤسسة زايد العليا لأصحاب الهمم (مشروع التأهيل والتخاطب)',
+      location: 'مصر / الإمارات',
+      dateRange: '01/2022 - حتى الآن',
       bullets: [
-        'إدارة التقييمات التربوية والسلوكية الشاملة وإعداد الخطط التربوية الفردية (IEP) للطلاب.',
-        'إعداد التقارير التربوية الرسمية وتقارير التسهيلات البيئية والتعليم المنزلي الموجهة للمدارس.',
-        'الإشراف الفني على برامج التخاطب وتعديل السلوك والتكامل الحسي وصعوبات التعلم.',
+        'إشراف فني وإداري متكامل على مراكز التأهيل وتطبيق معايير الجودة الدولية لذوي الهمم.',
+        'تدريب كوادر التأهيل والتخاطب وتطوير منظومة التشخيص والتقييم والخطط الفردية.',
       ],
     },
     {
       id: 'exp-2',
-      jobTitle: 'أخصائي تعديل سلوك وتنمية مهارات',
-      company: 'مركز الرعاية التربوية المتخصصة',
-      location: 'البحيرة',
-      dateRange: '06/2016 - 12/2019',
+      jobTitle: 'مدير المركز الشامل لرعاية الطفل',
+      company: 'المركز الشامل لرعاية الطفل',
+      location: 'دمنهور - البحيرة',
+      dateRange: '01/2016 - حتى الآن',
       bullets: [
-        'تصميم وتنفيذ خطط تعديل السلوك باستخدام التعزيز الإيجابي والاقتصاد الرمزي.',
-        'تدريب أولياء الأمور والمعلمين على استراتيجيات تنظيم الانتباه والروتين اليومي المنظم.',
+        'إدارة جميع تخصصات التأهيل وتأهيل أطفال ذوي الهمم وصعوبات التعلم والتخاطب والتكامل الحسي.',
+        'إعداد خطط فردية وتعديل سلوك وإرشاد أسري وتقارير تربوية معتمدة للمدارس والجهات الرسمية.',
+      ],
+    },
+    {
+      id: 'exp-3',
+      jobTitle: 'مدرب ومحاضر في مجالات التأهيل والتربية الخاصة',
+      company: 'مراكز التدريب والمؤتمرات التخصصية',
+      location: 'مصر والعالم العربي',
+      dateRange: '01/2010 - حتى الآن',
+      bullets: [
+        'تقديم مئات المحاضرات وورش العمل التطبيقية في تدريب كوادر التأهيل الحركي والعلاج الوظيفي.',
+        'بناء حقائب تدريبية في التكامل الحسي وتعديل السلوك وتطبيق المقاييس التربوية.',
+      ],
+    },
+    {
+      id: 'exp-4',
+      jobTitle: 'منسق مبادرة حياة كريمة (ملف ذوي الهمم)',
+      company: 'مبادرة حياة كريمة - فرع البحيرة',
+      location: 'محافظة البحيرة',
+      dateRange: '01/2021 - حتى الآن',
+      bullets: [
+        'تنسيق المبادرات الميدانية لرعاية وتأهيل أطفال ذوي الاحتياجات الخاصة وتقديم الدعم الأسري.',
+        'تيسير إجراءات الدمج والتقييم والتوجيه التأهيلي الشامل للأسر الأولى بالرعاية.',
+      ],
+    },
+    {
+      id: 'exp-5',
+      jobTitle: 'أخصائي علاج وظيفي وتأهيل حركي',
+      company: 'المركز التخصصي للعلاج الوظيفي والتأهيل',
+      location: 'البحيرة',
+      dateRange: '01/2002 - حتى الآن',
+      bullets: [
+        'تطبيق جلسات العلاج الوظيفي والتأهيل الحركي والتكامل الحسي وتنمية المهارات الاستقلالية.',
+        'تصميم برامج تدخل فردية ومتابعة مؤشرات التقدم الحركي والوظيفي للحالات.',
+      ],
+    },
+    {
+      id: 'exp-6',
+      jobTitle: 'مشرف ومحلل سلوك وتأهيل نفسي حركي',
+      company: 'مركز الترويض النفسي الرياضي',
+      location: 'دمنهور - البحيرة',
+      dateRange: '01/2018 - حتى الآن',
+      bullets: [
+        'الدمج بين التأهيل الحركي الرياضي وتعديل السلوك وتنمية الانتباه والمهارات الاجتماعية.',
       ],
     },
   ],
   education: [
     {
       id: 'edu-1',
-      degree: 'دبلوم مهني في التربية الخاصة وتعديل السلوك',
-      institution: 'كلية التربية - جامعة دمنهور',
-      dateRange: '09/2014 - 06/2016',
-      details: 'تخصص اضطرابات الانتباه وصعوبات التعلم',
+      degree: 'بكالوريوس تربية رياضية - شعبة عامة وعلوم صحية',
+      institution: 'جامعة الإسكندرية',
+      dateRange: '09/1996 - 06/2000',
+      details: 'شعبة عامة وعلوم صحية — دفعة 2000',
     },
   ],
   skills: [
-    { id: 'sk-1', name: 'إعداد الخطط التربوية الفردية (IEP)', level: 'متقدم' },
-    { id: 'sk-2', name: 'تعديل السلوك', level: 'متقدم' },
-    { id: 'sk-3', name: 'التقييم التربوي والسلوكي', level: 'متقدم' },
-    { id: 'sk-4', name: 'كتابة التقارير المهنية', level: 'متقدم' },
-    { id: 'sk-5', name: 'Microsoft Excel', level: 'متقدم' },
-    { id: 'sk-6', name: 'Microsoft Word', level: 'متقدم' },
-    { id: 'sk-7', name: 'الإرشاد الأسري', level: 'متقدم' },
+    { id: 'sk-1', name: 'علاج وظيفي وتأهيل حركي', level: 'خبير (+20 عام)' },
+    { id: 'sk-2', name: 'تحليل السلوك التطبيقي (ABAT)', level: 'متقدم' },
+    { id: 'sk-3', name: 'إدارة مراكز تأهيل والإشراف الفني', level: 'متقدم' },
+    { id: 'sk-4', name: 'تشخيص وتقييم وبناء خطط فردية', level: 'متقدم' },
+    { id: 'sk-5', name: 'تكامل حسي وتعديل سلوك وإرشاد أسري', level: 'متقدم' },
+    { id: 'sk-6', name: 'تدريب كوادر وتأهيل أطفال ذوي الهمم', level: 'متقدم' },
+    { id: 'sk-7', name: 'الابتكار والإنجاز والتواصل ودعم فريق', level: 'متقدم' },
+    { id: 'sk-8', name: 'Word - Excel - PowerPoint - AI', level: 'متقدم' },
   ],
   certifications: [
     {
       id: 'cert-1',
-      name: 'شهادة أخصائي تحليل سلوك تطبيقي (ABA)',
-      issuer: 'الأكاديمية التربوية للتدريب',
+      name: 'شهادة محلل سلوكي تطبيقي (ABAT)',
+      issuer: 'هيئة الاعتماد المهني لتحليل السلوك التطبيقي',
       date: '05/2021',
+    },
+    {
+      id: 'cert-2',
+      name: 'شهادات تخصصية معتمدة في تأهيل ذوي الهمم والعلاج الوظيفي',
+      issuer: 'مؤسسة زايد العليا والمراكز التخصصية',
+      date: '01/2022',
     },
   ],
   languages: [
@@ -246,72 +490,126 @@ export const DEFAULT_AR_CV_DATA: CvData = {
   trainings: [
     {
       id: 'trn-1',
-      title: 'برنامج تطبيق مقاييس الذكاء والقدرات المعرفية',
-      provider: 'المركز القومي للتدريب التربوي',
-      dateRange: '03/2022 - 05/2022',
+      title: 'تدريب كوادر مراكز التأهيل والتخاطب والخطط الفردية وتكامل حسي',
+      provider: 'مؤسسة زايد العليا ومديرية الشباب والرياضة بالبحيرة',
+      dateRange: '01/2022 - حتى الآن',
     },
   ],
   jobDescriptionText: '',
+  atsKeywords: DEFAULT_OSAMA_ATS_KEYWORDS,
+  customFields: [],
+  customSections: [],
+  sectionOrder: [...ATS_SECTION_ORDER],
+  hiddenSections: [],
+  designConfig: DEFAULT_CV_DESIGN_CONFIG,
 };
 
 export const DEFAULT_EN_CV_DATA: CvData = {
-  fullName: 'Osama El-Sammad',
-  targetJobTitle: 'Special Education Specialist and Technical Director',
-  phone: '01069579757',
-  email: 'info@alshamel-center.example',
-  location: 'Damanhour, Beheira, Egypt',
-  websiteOrLink: '[ ... ]',
+  fullName: 'Osama elsamad / أسامة الصماد',
+  targetJobTitle:
+    'Technical Director & Supervisor - Occupational Therapy & Motor Rehabilitation Specialist - Applied Behavior Analysis Technician (ABAT)',
+  phone: '00201069579757',
+  email: 'osamaelsamad23@gmail.com',
+  location: 'Egypt - Beheira - Damanhour - Hussein Hegazy St., next to Omar El-Wakeel School',
+  websiteOrLink: 'Experience: 20+ Years',
+  yearsOfExperience: '20+ Years',
   summary:
-    'Special Education Specialist and Technical Director experienced in comprehensive educational and behavioral assessment for children with Attention-Deficit/Hyperactivity Disorder (ADHD), Individualized Education Program (IEP) planning, behavior modification, and formal school accommodation reporting aligned with Applicant Tracking Systems (ATS) standards.',
+    'Consultant, Technical Director, and Senior Occupational Therapy & Motor Rehabilitation Specialist with over 20 years of hands-on leadership across rehabilitation centers, Applied Behavior Analysis (ABAT), pediatric rehabilitation for People of Determination, Individualized Education Plans (IEP), sensory integration, behavior modification, family counseling, and staff training aligned with Applicant Tracking Systems (ATS).',
   experiences: [
     {
       id: 'exp-1',
-      jobTitle: 'Special Education Specialist and Technical Director',
-      company: 'Al-Shamel Child Care Center',
-      location: 'Damanhour',
-      dateRange: '01/2020 - Present',
+      jobTitle: 'Consultant, Technical & Administrative Director for Rehabilitation Centers',
+      company: 'Zayed Higher Organization for People of Determination',
+      location: 'Egypt / UAE Collaboration',
+      dateRange: '01/2022 - Present',
       bullets: [
-        'Conducted comprehensive educational and behavioral assessments and built Individualized Education Program (IEP) plans.',
-        'Authored formal educational accommodation and structured home-schooling reports for schools.',
-        'Supervised speech therapy, behavior modification, sensory integration, and learning support specialists.',
+        'Directed technical operations and staff training programs across rehabilitation and speech therapy centers.',
+        'Established diagnostic assessment workflows and individualized rehabilitation planning standards.',
       ],
     },
     {
       id: 'exp-2',
-      jobTitle: 'Behavior Modification and Skills Specialist',
-      company: 'Specialized Educational Care Center',
-      location: 'Beheira',
-      dateRange: '06/2016 - 12/2019',
+      jobTitle: 'Director of Al-Shamel Child Care Center',
+      company: 'Al-Shamel Comprehensive Child Care Center',
+      location: 'Damanhour, Beheira',
+      dateRange: '01/2016 - Present',
       bullets: [
-        'Implemented structured behavior intervention programs using positive reinforcement and token economy.',
-        'Trained parents and teachers on attention regulation and daily structured routine strategies.',
+        'Managed multidisciplinary pediatric rehabilitation services including speech, sensory integration, and behavior therapy.',
+        'Authored individualized plans and formal school accommodation evaluations.',
+      ],
+    },
+    {
+      id: 'exp-3',
+      jobTitle: 'Master Trainer & Lecturer in Rehabilitation Sciences',
+      company: 'National & Regional Training Centers',
+      location: 'Egypt',
+      dateRange: '01/2010 - Present',
+      bullets: [
+        'Trained rehabilitation specialists and teams in occupational therapy, motor rehabilitation, and ABAT practices.',
+      ],
+    },
+    {
+      id: 'exp-4',
+      jobTitle: 'Coordinator - Hayah Karima Initiative (People of Determination)',
+      company: 'Hayah Karima Initiative - Beheira',
+      location: 'Beheira, Egypt',
+      dateRange: '01/2021 - Present',
+      bullets: [
+        'Coordinated community outreach, developmental screenings, and family counseling support.',
+      ],
+    },
+    {
+      id: 'exp-5',
+      jobTitle: 'Occupational Therapy & Motor Rehabilitation Specialist',
+      company: 'Specialized Rehabilitation Centers',
+      location: 'Beheira, Egypt',
+      dateRange: '01/2002 - Present',
+      bullets: [
+        'Delivered clinical occupational therapy, motor skill rehabilitation, and sensory integration sessions.',
+      ],
+    },
+    {
+      id: 'exp-6',
+      jobTitle: 'Psychomotor & Behavior Supervisor',
+      company: 'Psychomotor Rehabilitation Center',
+      location: 'Damanhour, Beheira',
+      dateRange: '01/2018 - Present',
+      bullets: [
+        'Integrated structured motor activities with applied behavioral strategies to enhance focus and independence.',
       ],
     },
   ],
   education: [
     {
       id: 'edu-1',
-      degree: 'Professional Diploma in Special Education and Behavior Modification',
-      institution: 'Faculty of Education - Damanhour University',
-      dateRange: '09/2014 - 06/2016',
-      details: 'Focus on Attention Disorders and Learning Difficulties',
+      degree: 'Bachelor of Physical Education - General Section & Health Sciences',
+      institution: 'Alexandria University',
+      dateRange: '09/1996 - 06/2000',
+      details: 'Class of 2000 — Health Sciences & Rehabilitation Focus',
     },
   ],
   skills: [
-    { id: 'sk-1', name: 'Individualized Education Program (IEP)', level: 'Advanced' },
-    { id: 'sk-2', name: 'Behavior Modification', level: 'Advanced' },
-    { id: 'sk-3', name: 'Educational Assessment', level: 'Advanced' },
-    { id: 'sk-4', name: 'Professional Report Writing', level: 'Advanced' },
-    { id: 'sk-5', name: 'Microsoft Excel', level: 'Advanced' },
-    { id: 'sk-6', name: 'Microsoft Word', level: 'Advanced' },
-    { id: 'sk-7', name: 'Family Counseling', level: 'Advanced' },
+    { id: 'sk-1', name: 'Occupational Therapy & Motor Rehabilitation', level: 'Expert (20+ Years)' },
+    { id: 'sk-2', name: 'Applied Behavior Analysis Technician (ABAT)', level: 'Advanced' },
+    { id: 'sk-3', name: 'Rehabilitation Center Management & Supervision', level: 'Advanced' },
+    { id: 'sk-4', name: 'Diagnostic Assessment & Individualized Plans', level: 'Advanced' },
+    { id: 'sk-5', name: 'Sensory Integration & Behavior Modification', level: 'Advanced' },
+    { id: 'sk-6', name: 'Family Counseling & Staff Training', level: 'Advanced' },
+    { id: 'sk-7', name: 'Innovation, Achievement, Communication, Teamwork', level: 'Advanced' },
+    { id: 'sk-8', name: 'Word - Excel - PowerPoint - AI Tools', level: 'Advanced' },
   ],
   certifications: [
     {
       id: 'cert-1',
-      name: 'Applied Behavior Analysis (ABA) Practitioner Certificate',
-      issuer: 'Educational Training Academy',
+      name: 'Applied Behavior Analysis Technician (ABAT) Credential',
+      issuer: 'QABA Board',
       date: '05/2021',
+    },
+    {
+      id: 'cert-2',
+      name: 'Certified Rehabilitation & Occupational Therapy Leadership',
+      issuer: 'Zayed Higher Organization',
+      date: '01/2022',
     },
   ],
   languages: [
@@ -321,39 +619,45 @@ export const DEFAULT_EN_CV_DATA: CvData = {
   trainings: [
     {
       id: 'trn-1',
-      title: 'Cognitive and Intelligence Scales Administration Program',
-      provider: 'National Center for Educational Training',
-      dateRange: '03/2022 - 05/2022',
+      title: 'Staff Capacity Building in Rehabilitation, Speech & Individualized Plans',
+      provider: 'Zayed Higher Organization & Directorate of Youth and Sports',
+      dateRange: '01/2022 - Present',
     },
   ],
   jobDescriptionText: '',
+  atsKeywords: DEFAULT_OSAMA_ATS_KEYWORDS,
+  customFields: [],
+  customSections: [],
+  sectionOrder: [...ATS_SECTION_ORDER],
+  hiddenSections: [],
+  designConfig: { ...DEFAULT_CV_DESIGN_CONFIG, displayMode: 'en' },
 };
 
 export function createBlankCvData(language: CvLanguage): CvData {
   if (language === 'en') {
     return {
-      fullName: '[ ... ]',
-      targetJobTitle: '[ ... ]',
-      phone: '[ ... ]',
-      email: '[ ... ]',
-      location: '[ ... ]',
+      fullName: '[ غير موجود ]',
+      targetJobTitle: '[ غير موجود ]',
+      phone: '[ غير موجود ]',
+      email: '[ غير موجود ]',
+      location: '[ غير موجود ]',
       websiteOrLink: '[ ... ]',
-      summary: '[ ... ]',
+      summary: '[ غير موجود ]',
       experiences: [
         {
           id: 'exp-1',
-          jobTitle: '[ ... ]',
-          company: '[ ... ]',
+          jobTitle: '[ غير موجود ]',
+          company: '[ غير موجود ]',
           location: '[ ... ]',
           dateRange: '01/2023 - Present',
-          bullets: ['[ ... ]'],
+          bullets: ['[ غير موجود ]'],
         },
       ],
       education: [
         {
           id: 'edu-1',
-          degree: '[ ... ]',
-          institution: '[ ... ]',
+          degree: '[ غير موجود ]',
+          institution: '[ غير موجود ]',
           dateRange: '09/2018 - 06/2022',
           details: '',
         },
@@ -366,31 +670,36 @@ export function createBlankCvData(language: CvLanguage): CvData {
       ],
       trainings: [],
       jobDescriptionText: '',
+      customFields: [],
+      customSections: [],
+      sectionOrder: [...ATS_SECTION_ORDER],
+      hiddenSections: [],
+      designConfig: { ...DEFAULT_CV_DESIGN_CONFIG, displayMode: 'en' },
     };
   }
   return {
-    fullName: '[ ... ]',
-    targetJobTitle: '[ ... ]',
-    phone: '[ ... ]',
-    email: '[ ... ]',
-    location: '[ ... ]',
+    fullName: '[ غير موجود ]',
+    targetJobTitle: '[ غير موجود ]',
+    phone: '[ غير موجود ]',
+    email: '[ غير موجود ]',
+    location: '[ غير موجود ]',
     websiteOrLink: '[ ... ]',
-    summary: '[ ... ]',
+    summary: '[ غير موجود ]',
     experiences: [
       {
         id: 'exp-1',
-        jobTitle: '[ ... ]',
-        company: '[ ... ]',
+        jobTitle: '[ غير موجود ]',
+        company: '[ غير موجود ]',
         location: '[ ... ]',
         dateRange: '01/2023 - حتى الآن',
-        bullets: ['[ ... ]'],
+        bullets: ['[ غير موجود ]'],
       },
     ],
     education: [
       {
         id: 'edu-1',
-        degree: '[ ... ]',
-        institution: '[ ... ]',
+        degree: '[ غير موجود ]',
+        institution: '[ غير موجود ]',
         dateRange: '09/2018 - 06/2022',
         details: '',
       },
@@ -403,6 +712,11 @@ export function createBlankCvData(language: CvLanguage): CvData {
     ],
     trainings: [],
     jobDescriptionText: '',
+    customFields: [],
+    customSections: [],
+    sectionOrder: [...ATS_SECTION_ORDER],
+    hiddenSections: [],
+    designConfig: DEFAULT_CV_DESIGN_CONFIG,
   };
 }
 
@@ -428,28 +742,28 @@ export const ATS_CV_TEMPLATES: CvTemplateDefinition[] = [
     sectionRuleStyle: 'double-line',
     arPreset: {
       ...DEFAULT_AR_CV_DATA,
-      targetJobTitle: 'مدير مركز رعاية وتأهيل تربوي',
+      targetJobTitle: 'استشاري ومدير فني وإداري لمراكز التأهيل — ABAT',
     },
     enPreset: {
       ...DEFAULT_EN_CV_DATA,
-      targetJobTitle: 'Educational Care Center Director',
+      targetJobTitle: 'Consultant & Technical Director for Rehabilitation Centers',
     },
   },
   {
     id: 'ats-academic',
-    nameAr: 'قالب ATS التربوي والأكاديمي',
-    nameEn: 'ATS Academic & Clinical',
+    nameAr: 'قالب ATS الطبي والتأهيلي والأكاديمي',
+    nameEn: 'ATS Medical & Academic',
     descriptionAr:
-      'مصمم للأخصائيين والمعلمين والباحثين مع إبراز المؤهلات والشهادات والتدريب بترتيب ATS القياسي.',
+      'مصمم لأخصائيي العلاج الوظيفي والتأهيل الحركي وتحليل السلوك والأكاديميين بترتيب ATS القياسي.',
     headerAlign: 'right',
     sectionRuleStyle: 'subtle',
     arPreset: {
       ...DEFAULT_AR_CV_DATA,
-      targetJobTitle: 'أخصائي تقييم تربوي وتعديل سلوك',
+      targetJobTitle: 'أخصائي علاج وظيفي وتأهيل حركي ومحلل سلوكي تطبيقي ABAT',
     },
     enPreset: {
       ...DEFAULT_EN_CV_DATA,
-      targetJobTitle: 'Educational Assessment and Behavior Specialist',
+      targetJobTitle: 'Occupational Therapy & Motor Rehabilitation Specialist (ABAT)',
     },
   },
   {
@@ -457,7 +771,7 @@ export const ATS_CV_TEMPLATES: CvTemplateDefinition[] = [
     nameAr: 'قالب ATS للمهارات والكلمات المفتاحية',
     nameEn: 'ATS Skills & Keywords Focus',
     descriptionAr:
-      'ملائم لإبراز الكلمات المفتاحية والمهارات التقنية والتخصصية بنص مفصول بفواصل متوافق تماماً مع ATS.',
+      'ملائم لإبراز الكلمات المفتاحية والمهارات التخصصية بنص مفصول بفواصل متوافق تماماً مع ATS.',
     headerAlign: 'center',
     sectionRuleStyle: 'solid',
     arPreset: DEFAULT_AR_CV_DATA,

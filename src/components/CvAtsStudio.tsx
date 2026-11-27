@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { toPng } from 'html-to-image';
+import { jsPDF } from 'jspdf';
 import {
   ArrowDown,
   ArrowUp,
@@ -19,11 +21,13 @@ import {
   FolderOpen,
   ImagePlus,
   Languages,
+  Link2,
   Loader2,
   Menu,
   Paperclip,
   Plus,
   Printer,
+  RotateCcw,
   Save,
   ShieldCheck,
   Sparkles,
@@ -57,11 +61,13 @@ import {
   requestExtractJobAdFromServer,
 } from '../utils/cvFileParser';
 import { copyTextToClipboard } from '../utils/storageAndBackup';
+import { SmartAddKind } from '../types/studio';
 import { AtsCheckModal } from './AtsCheckModal';
 import { CvAtsDocument } from './CvAtsDocument';
 import { CvCertificatesModal } from './CvCertificatesModal';
 import { CvImportModal } from './CvImportModal';
 import { CvPhotoModal } from './CvPhotoModal';
+import { CvSmartEnhancerPanel } from './CvSmartEnhancerPanel';
 import { CvTargetSectorPanel } from './CvTargetSectorPanel';
 
 export type CvStudioTab =
@@ -105,6 +111,18 @@ interface CvAtsStudioProps {
   onDeleteCvRecord: (id: string) => void;
   onNotify: (msg: string) => void;
   pendingMenuAction?: { action: CvMenuActionId; seq: number } | null;
+  externalCvOverride?: { ar?: CvData; en?: CvData; lang?: CvLanguage; seq: number } | null;
+  onActiveCvSnapshot?: (snapshot: {
+    cv: CvData;
+    language: CvLanguage;
+    templateId: CvTemplateId;
+  }) => void;
+  onOpenCvAutoFormat?: (payload: {
+    cv: CvData;
+    language: CvLanguage;
+    templateId: CvTemplateId;
+  }) => void;
+  onOpenSmartAdd?: (kind: SmartAddKind) => void;
 }
 
 const A4_WIDTH_PX = 794;
@@ -113,11 +131,27 @@ const LS_ACTIVE_CV_DRAFT_KEY = 'shamel_active_cv_draft_v1';
 
 function loadSavedActiveCvDraft(): { ar: CvData; en: CvData } {
   try {
+    if (typeof window !== 'undefined' && window.location.hash.startsWith('#cv=')) {
+      const encoded = window.location.hash.slice(4);
+      const jsonStr = decodeURIComponent(escape(atob(decodeURIComponent(encoded))));
+      const shared = JSON.parse(jsonStr);
+      if (shared?.ar && shared?.en) {
+        return { ar: shared.ar, en: shared.en };
+      }
+    }
     const raw = localStorage.getItem(LS_ACTIVE_CV_DRAFT_KEY);
     if (!raw) return { ar: DEFAULT_AR_CV_DATA, en: DEFAULT_EN_CV_DATA };
     const parsed = JSON.parse(raw);
+    const arCandidate: CvData | undefined = parsed?.ar;
+    const isStalePlaceholder =
+      !arCandidate ||
+      arCandidate.email === 'info@alshamel-center.example' ||
+      arCandidate.fullName?.includes('نموذج السيرة');
+    if (isStalePlaceholder) {
+      return { ar: DEFAULT_AR_CV_DATA, en: DEFAULT_EN_CV_DATA };
+    }
     return {
-      ar: parsed?.ar ? parsed.ar : DEFAULT_AR_CV_DATA,
+      ar: arCandidate,
       en: parsed?.en ? parsed.en : DEFAULT_EN_CV_DATA,
     };
   } catch {
@@ -134,11 +168,17 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
   onDeleteCvRecord,
   onNotify,
   pendingMenuAction,
+  externalCvOverride,
+  onActiveCvSnapshot,
+  onOpenCvAutoFormat,
+  onOpenSmartAdd,
 }) => {
   const [cvLanguage, setCvLanguage] = useState<CvLanguage>('ar');
   const [templateId, setTemplateId] = useState<CvTemplateId>('ats-classic');
   const [arCv, setArCv] = useState<CvData>(() => loadSavedActiveCvDraft().ar);
   const [enCv, setEnCv] = useState<CvData>(() => loadSavedActiveCvDraft().en);
+  const [smartSuiteOpen, setSmartSuiteOpen] = useState<boolean>(true);
+  const [exportingPdfBusy, setExportingPdfBusy] = useState<boolean>(false);
 
   const [atsModalOpen, setAtsModalOpen] = useState(false);
   const [importMenuOpen, setImportMenuOpen] = useState(false);
@@ -248,6 +288,24 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
     triggerMenuAction(pendingMenuAction.action);
   }, [pendingMenuAction]);
 
+  useEffect(() => {
+    onActiveCvSnapshot?.({
+      cv: activeCv,
+      language: cvLanguage,
+      templateId,
+    });
+  }, [activeCv, cvLanguage, templateId, onActiveCvSnapshot]);
+
+  useEffect(() => {
+    if (!externalCvOverride) return;
+    const nextAr = externalCvOverride.ar ? externalCvOverride.ar : arCv;
+    const nextEn = externalCvOverride.en ? externalCvOverride.en : enCv;
+    if (externalCvOverride.ar) setArCv(nextAr);
+    if (externalCvOverride.en) setEnCv(nextEn);
+    if (externalCvOverride.lang) setCvLanguage(externalCvOverride.lang);
+    persistCvDraft(nextAr, nextEn);
+  }, [externalCvOverride]);
+
   // Close dropdown on click outside or Esc
   useEffect(() => {
     if (!importMenuOpen) return;
@@ -334,6 +392,82 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
   const handleExportWord = async () => {
     await exportCvToAtsWord(activeCv, cvLanguage);
     onNotify('تم تصدير السيرة الذاتية بصيغة Word متوافقة مع ATS');
+  };
+
+  const handleExportPdfFile = async () => {
+    const el = cvDocRef.current;
+    if (!el) {
+      window.print();
+      return;
+    }
+    setExportingPdfBusy(true);
+    try {
+      const dataUrl = await toPng(el, {
+        pixelRatio: 2,
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+      });
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+      pdf.addImage(dataUrl, 'PNG', 0, 0, 210, 297);
+      const safeName = activeCv.fullName.trim().replace(/\s+/g, '-') || 'Osama-CV';
+      pdf.save(`CV-${safeName}-${cvLanguage}.pdf`);
+      onNotify('تم تصدير ملف PDF قياسي A4 بنجاح ✓');
+    } catch {
+      window.print();
+      onNotify('تم فتح نافذة الطباعة لحفظ PDF');
+    } finally {
+      setExportingPdfBusy(false);
+    }
+  };
+
+  const handleExportPngFile = async () => {
+    const el = cvDocRef.current;
+    if (!el) return;
+    try {
+      const dataUrl = await toPng(el, {
+        pixelRatio: 2.2,
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+      });
+      const link = document.createElement('a');
+      const safeName = activeCv.fullName.trim().replace(/\s+/g, '-') || 'CV';
+      link.href = dataUrl;
+      link.download = `CV-${safeName}-${cvLanguage}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      onNotify('تم تصدير صورة السيرة الذاتية عالية الجودة (PNG) ✓');
+    } catch {
+      onNotify('تعذر تصدير الصورة');
+    }
+  };
+
+  const handleCopyShareLink = async () => {
+    try {
+      const payload = JSON.stringify({ ar: arCv, en: enCv });
+      const encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(payload))));
+      const shareUrl = `${window.location.origin}${window.location.pathname}#cv=${encoded}`;
+      const ok = await copyTextToClipboard(shareUrl);
+      onNotify(
+        ok
+          ? 'تم نسخ رابط مشاركة السيرة الذاتية التفاعلي بنجاح ✓'
+          : 'تعذر نسخ الرابط، يمكنك حفظ JSON بدلاً من ذلك'
+      );
+    } catch {
+      onNotify('تعذر إنشاء رابط المشاركة');
+    }
+  };
+
+  const handleRestoreOsamaDefaults = () => {
+    setArCv(DEFAULT_AR_CV_DATA);
+    setEnCv(DEFAULT_EN_CV_DATA);
+    persistCvDraft(DEFAULT_AR_CV_DATA, DEFAULT_EN_CV_DATA);
+    setImportFeedback(null);
+    onNotify('تمت استعادة البيانات الافتراضية الكاملة لـ أ/ أسامة الصماد ✓');
   };
 
   const handleSaveCurrentCv = () => {
@@ -545,6 +679,20 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
               </button>
             </div>
 
+            {/* Smart Auto-Format Button */}
+            {onOpenCvAutoFormat && (
+              <button
+                type="button"
+                onClick={() =>
+                  onOpenCvAutoFormat({ cv: activeCv, language: cvLanguage, templateId })
+                }
+                className={`min-h-[36px] px-3.5 bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer ${buttonRadiusClass}`}
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>✨ تنسيق آلي ذكي</span>
+              </button>
+            )}
+
             {/* Required [ فحص ATS ] Button */}
             <button
               type="button"
@@ -583,6 +731,19 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
                     استيراد وإضافة بيانات CV
                   </div>
                   <div className="p-1.5 space-y-0.5">
+                    {onOpenCvAutoFormat && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImportMenuOpen(false);
+                          onOpenCvAutoFormat({ cv: activeCv, language: cvLanguage, templateId });
+                        }}
+                        className="w-full text-right px-3 py-2 rounded-lg bg-[#F5F3FF] hover:bg-[#EDE9FE] text-[#5B21B6] font-bold flex items-center gap-2.5 cursor-pointer mb-1"
+                      >
+                        <Sparkles className="w-4 h-4 text-[#7C3AED] shrink-0" />
+                        <span>✨ تنسيق آلي ذكي للكل</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => triggerMenuAction('import-cv')}
@@ -761,21 +922,61 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
           {activeTab === 'new-cv' && (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#E2E8F0]">
-                <span className="font-bold text-[#0F172A]">محرر السيرة الذاتية ATS</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setArCv(createBlankCvData('ar'));
-                    setEnCv(createBlankCvData('en'));
-                    setImportFeedback(null);
-                    onNotify('تم إنشاء نموذج CV جديد فارغ متوافق مع ATS');
-                  }}
-                  className={`min-h-[32px] px-2.5 bg-[#059669] hover:bg-[#047857] text-white font-bold inline-flex items-center gap-1 cursor-pointer ${buttonRadiusClass}`}
-                >
-                  <FilePlus2 className="w-3.5 h-3.5" />
-                  <span>بدء CV فارغ</span>
-                </button>
+                <span className="font-bold text-[#0F172A]">محرر السيرة الذاتية الذكي (ATS)</span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSmartSuiteOpen((p) => !p)}
+                    className={`min-h-[32px] px-2.5 bg-[#F5F3FF] hover:bg-[#EDE9FE] text-[#5B21B6] border border-[#DDD6FE] font-bold inline-flex items-center gap-1 cursor-pointer ${buttonRadiusClass}`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{smartSuiteOpen ? 'إخفاء الجناح الذكي' : 'الجناح الذكي ✨'}</span>
+                  </button>
+                  {onOpenSmartAdd && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenSmartAdd('cv')}
+                      className={`min-h-[32px] px-2.5 bg-[#059669] hover:bg-[#047857] text-white font-bold inline-flex items-center gap-1 cursor-pointer ${buttonRadiusClass}`}
+                    >
+                      <FilePlus2 className="w-3.5 h-3.5" />
+                      <span>CV جديد</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleRestoreOsamaDefaults}
+                    title="استعادة السيرة الافتراضية الكاملة لأسامة الصماد"
+                    className={`min-h-[32px] px-2.5 bg-[#ECFDF5] hover:bg-[#D1FAE5] text-[#065F46] border border-[#A7F3D0] font-bold inline-flex items-center gap-1 cursor-pointer ${buttonRadiusClass}`}
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>أسامة الصماد</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setArCv(createBlankCvData('ar'));
+                      setEnCv(createBlankCvData('en'));
+                      setImportFeedback(null);
+                      onNotify('تم إنشاء نموذج CV جديد فارغ متوافق مع ATS');
+                    }}
+                    className={`min-h-[32px] px-2.5 bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1E3A8A] border border-[#BFDBFE] font-bold inline-flex items-center gap-1 cursor-pointer ${buttonRadiusClass}`}
+                  >
+                    <span>نموذج فارغ</span>
+                  </button>
+                </div>
               </div>
+
+              {smartSuiteOpen && (
+                <CvSmartEnhancerPanel
+                  cv={activeCv}
+                  language={cvLanguage}
+                  templateId={templateId}
+                  buttonRadiusClass={buttonRadiusClass}
+                  onUpdateCv={updateActiveCv}
+                  onChangeTemplateId={setTemplateId}
+                  onNotify={onNotify}
+                />
+              )}
                 {importFeedback && (
                   <div className="p-2.5 rounded-lg bg-[#ECFDF5] border border-[#A7F3D0] text-[#065F46] text-[11px] space-y-1">
                     <div className="flex items-center justify-between font-bold">
@@ -920,7 +1121,11 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
                     <span className="font-bold text-[#1E3A8A]">{headings.experience}</span>
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
+                        if (onOpenSmartAdd) {
+                          onOpenSmartAdd('experience');
+                          return;
+                        }
                         updateActiveCv({
                           ...activeCv,
                           experiences: [
@@ -937,8 +1142,8 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
                               bullets: ['[ ... ]'],
                             },
                           ],
-                        })
-                      }
+                        });
+                      }}
                       className={`px-2.5 py-1 bg-[#EFF6FF] text-[#1E3A8A] font-bold inline-flex items-center gap-1 cursor-pointer ${buttonRadiusClass}`}
                     >
                       <Plus className="w-3.5 h-3.5" />
@@ -1079,7 +1284,11 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
                     <span className="font-bold text-[#1E3A8A]">{headings.education}</span>
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
+                        if (onOpenSmartAdd) {
+                          onOpenSmartAdd('education');
+                          return;
+                        }
                         updateActiveCv({
                           ...activeCv,
                           education: [
@@ -1092,12 +1301,12 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
                               details: '',
                             },
                           ],
-                        })
-                      }
+                        });
+                      }}
                       className={`px-2.5 py-1 bg-[#EFF6FF] text-[#1E3A8A] font-bold inline-flex items-center gap-1 cursor-pointer ${buttonRadiusClass}`}
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>إضافة مؤهل</span>
+                      <span>إضافة تعليم</span>
                     </button>
                   </div>
                   {activeCv.education.map((edu, eduIdx) => (
@@ -1208,9 +1417,20 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
 
                 {/* 4. Skills (Plain Text + Level) */}
                 <div className="pt-3 border-t border-[#E2E8F0] space-y-2">
-                  <span className="font-bold text-[#1E3A8A] block">
-                    {headings.skills} (نص مفصول بفواصل — بدون أشرطة نسب)
-                  </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-[#1E3A8A]">
+                      {headings.skills} (نص مفصول بفواصل — بدون أشرطة نسب)
+                    </span>
+                    {onOpenSmartAdd && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenSmartAdd('skill')}
+                        className="text-[#2563EB] font-bold cursor-pointer"
+                      >
+                        + إضافة مهارة
+                      </button>
+                    )}
+                  </div>
                   <div className="flex gap-1.5">
                     <input
                       type="text"
@@ -1330,7 +1550,11 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
                     <span className="font-bold text-[#1E3A8A]">{headings.certifications}</span>
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
+                        if (onOpenSmartAdd) {
+                          onOpenSmartAdd('certificate');
+                          return;
+                        }
                         updateActiveCv({
                           ...activeCv,
                           certifications: [
@@ -1342,8 +1566,8 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
                               date: '01/2024',
                             },
                           ],
-                        })
-                      }
+                        });
+                      }}
                       className="text-[#2563EB] font-bold cursor-pointer"
                     >
                       + إضافة شهادة
@@ -1715,12 +1939,12 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
               </div>
             )}
 
-            {/* TAB 3: ATS TEMPLATES */}
+            {/* TAB 3: ATS & VISUAL TEMPLATES */}
             {activeTab === 'templates' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-[#1E3A8A]">
-                    جميع قوالب CV مطبّق عليها ATS 100%
+                    جميع قوالب CV مطبّق عليها ATS 100% + 8 قوالب بصرية
                   </span>
                   <button
                     type="button"
@@ -1736,7 +1960,18 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
                   </button>
                 </div>
 
-                <div className="space-y-2">
+                <CvSmartEnhancerPanel
+                  cv={activeCv}
+                  language={cvLanguage}
+                  templateId={templateId}
+                  buttonRadiusClass={buttonRadiusClass}
+                  onUpdateCv={updateActiveCv}
+                  onChangeTemplateId={setTemplateId}
+                  onNotify={onNotify}
+                />
+
+                <div className="space-y-2 pt-2 border-t border-[#E2E8F0]">
+                  <div className="font-bold text-[#475569]">قوالب المحتوى القياسية (4):</div>
                   {ATS_CV_TEMPLATES.map((tpl) => {
                     const active = templateId === tpl.id;
                     return (
@@ -1845,7 +2080,7 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
               </div>
             )}
 
-            {/* TAB 5: EXPORT PDF & ATS FORMATS */}
+            {/* TAB 5: EXPORT PDF, PNG, WORD, LINK & ATS FORMATS */}
             {activeTab === 'export-pdf' && (
               <div className="space-y-3">
                 <div className="p-3 rounded-lg bg-[#ECFDF5] border border-[#A7F3D0] text-[#065F46] space-y-1">
@@ -1854,17 +2089,31 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
                     <span>جاهز للتصدير والطباعة بنظام ATS ({atsAudit.score}%)</span>
                   </div>
                   <div className="text-[11px]">
-                    تُصدَّر السيرة الذاتية بعمود واحد وخط قياسي واضح وقابل للنسخ والفرز التلقائي.
+                    تُصدَّر السيرة الذاتية بملف PDF و Word و PNG ورابط مشاركة وخط واضح قابل للنسخ.
                   </div>
                 </div>
 
                 <button
                   type="button"
+                  disabled={exportingPdfBusy}
+                  onClick={handleExportPdfFile}
+                  className={`w-full min-h-[44px] px-4 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold inline-flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-60 ${buttonRadiusClass}`}
+                >
+                  {exportingPdfBusy ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span>تحميل ملف PDF مباشرة (A4)</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => window.print()}
-                  className={`w-full min-h-[44px] px-4 bg-[#4F46E5] hover:bg-[#4338CA] text-white font-bold inline-flex items-center justify-center gap-2 shadow-sm cursor-pointer ${buttonRadiusClass}`}
+                  className={`w-full min-h-[40px] px-4 bg-[#4F46E5] hover:bg-[#4338CA] text-white font-bold inline-flex items-center justify-center gap-2 shadow-sm cursor-pointer ${buttonRadiusClass}`}
                 >
                   <Printer className="w-4 h-4" />
-                  <span>تصدير PDF / طباعة A4 الآن</span>
+                  <span>طباعة A4 فورية</span>
                 </button>
 
                 <button
@@ -1877,6 +2126,22 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
                 </button>
 
                 <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleExportPngFile}
+                    className={`min-h-[38px] px-3 bg-[#FFFBEB] border border-[#FDE68A] text-[#92400E] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+                  >
+                    <FileImage className="w-3.5 h-3.5" />
+                    <span>تصدير صورة PNG</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyShareLink}
+                    className={`min-h-[38px] px-3 bg-[#EFF6FF] border border-[#BFDBFE] text-[#1E3A8A] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer ${buttonRadiusClass}`}
+                  >
+                    <Link2 className="w-3.5 h-3.5" />
+                    <span>نسخ رابط مشاركة</span>
+                  </button>
                   <button
                     type="button"
                     onClick={handleExportTxt}
@@ -2105,6 +2370,7 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
             >
               <CvAtsDocument
                 cv={activeCv}
+                secondaryCv={cvLanguage === 'ar' ? enCv : arCv}
                 language={cvLanguage}
                 templateId={templateId}
                 docRef={cvDocRef}
@@ -2136,6 +2402,19 @@ export const CvAtsStudio: React.FC<CvAtsStudioProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
+            {onOpenCvAutoFormat && (
+              <button
+                type="button"
+                onClick={() => {
+                  setImportMenuOpen(false);
+                  onOpenCvAutoFormat({ cv: activeCv, language: cvLanguage, templateId });
+                }}
+                className="w-full min-h-[42px] px-3 rounded-lg bg-[#F5F3FF] border border-[#DDD6FE] text-[#5B21B6] font-bold flex items-center gap-2.5"
+              >
+                <Sparkles className="w-4 h-4 text-[#7C3AED] shrink-0" />
+                <span>✨ تنسيق آلي ذكي للكل</span>
+              </button>
+            )}
             {(
               [
                 ['import-cv', 'استيراد CV قديم', Upload],
